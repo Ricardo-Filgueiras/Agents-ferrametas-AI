@@ -1,12 +1,15 @@
 from agno.agent import Agent
+from agno.models.google import Gemini
+# from agno.tools.yfinance import YFinanceTools
 from agno.tools.tavily import TavilyTools
-from agno.models.openai import OpenAIResponses
+from dotenv import load_dotenv
+load_dotenv()
 
 agent = Agent(
-    model=OpenAIResponses(id="gpt-4o", temperature=0.7),
-    tools=[TavilyTools()], 
+    model=Gemini(id="gemini-2.5-flash"),
+    tools=[TavilyTools()],
     markdown=True
     )
 
 
-agent.print_response("Search tavily for 'language models'")
+agent.print_response("Qual a temperatura atual em Goiânia GO ?", stream=True)

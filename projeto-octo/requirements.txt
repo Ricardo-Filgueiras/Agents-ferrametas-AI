@@ -4,6 +4,7 @@ langchain-community
 python-dotenv
 langchain-google-genai
 ollama
+langchain-ollama
 langchain
 requests
 pydantic

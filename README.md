@@ -30,6 +30,7 @@ Ambos os projetos utilizam **UV** para gerenciamento de dependências e ambiente
 
 ---
 
+
 ## 🏗️ Estrutura do Projeto
 
 ```
@@ -44,15 +45,46 @@ Agents-ferrametas-AI/
 │   ├── main.py                        # Ponto de entrada principal
 │   └── hello.py                       # Script de teste
 │
-└── projeto-langchain/                 # Projeto com LangChain e RAG
-    ├── requirements.txt               # Dependências do projeto
-    ├── app.py                         # Aplicação principal RAG
-    ├── gem.py                         # Implementação com Google Gemini
-    ├── gem2.py                        # Variação com Gemini
-    ├── openai.py                      # Integração com OpenAI
-    └── data/
-        └── dadosbasev1.csv           # Base de dados para RAG
+├── projeto-langchain/                 # Projeto com LangChain e RAG
+│   ├── requirements.txt               # Dependências do projeto
+│   ├── app.py                         # Aplicação principal RAG
+│   ├── gem.py                         # Implementação com Google Gemini
+│   ├── gem2.py                        # Variação com Gemini
+│   ├── openai.py                      # Integração com OpenAI
+│   └── data/
+│       └── dadosbasev1.csv           # Base de dados para RAG
+│
+└── projeto-octo/                      # IA local com LangChain e Ollama
+  ├── main.py                        # Script principal de exemplo
+  ├── requirements.txt               # Dependências do projeto
+  ├── pyproject.toml                  # Configuração do projeto
+  ├── README.md                      # Documentação específica do projeto-octo
+  ├── data/                          # Dados de exemplo para experimentos
+  │   ├── ytcanal_normalizado.csv
+  │   ├── ytdata_normalizada.csv
+  │   ├── ytdata.csv
+  │   ├── ytoutros_normalizado.csv
+  │   ├── ytupdatediariacanal.csv
+  │   └── ytupdateoutros.csv
+  └── exemplos/                      # Notebooks Jupyter com tutoriais e demonstrações
+    ├── 02_models.ipynb
+    ├── 03_models_avancado.ipynb
+    ├── 04_prompt_templates.ipynb
+    ├── 05_output_parsers.ipynb
+    ├── 06_chains_com_lcel.ipynb
+    ├── 07_chains_e_langsmith.ipynb
+    ├── 08_runnables.ipynb
+    ├── 09_roteamento.ipynb
+    ├── 10_memory.ipynb
+    ├── 12_document_loaders.ipynb
+    ├── 13_text_splitting.ipynb
+    ├── 14_embeddings.ipynb
+    ├── 15_vector_stores.ipynb
+    ├── 16_retrieval.ipynb
+    ├── 17_pipeline_rag.ipynb
+    └── desenvolvimento.ipynb
 ```
+
 
 ### Detalhamento dos Componentes
 
@@ -73,6 +105,20 @@ Agents-ferrametas-AI/
   - `gem.py` e `gem2.py`: Alternativas com Google Gemini
   - `openai.py`: Configurações específicas OpenAI
   - `data/dadosbasev1.csv`: Base de conhecimento para o RAG
+
+#### **projeto-octo/**
+- **Frameworks**: LangChain, Ollama, Python, Jupyter
+- **Propósito**: Demonstrar o uso de modelos de linguagem (LLMs) localmente, integrando LangChain, Ollama e exemplos práticos para experimentos, prototipagem e desenvolvimento de aplicações de IA generativa, com destaque para uso local e integração com o Visual Studio Code.
+- **Principais recursos**:
+  - Execução local de LLMs (Llama, Mistral, Phi, etc) via Ollama
+  - Integração com LangChain para chains, embeddings, retrieval e mais
+  - Notebooks práticos em `exemplos/` para uso básico e avançado
+  - Foco em desenvolvimento assistido por IA no VS Code
+- **Arquivos principais**:
+  - `main.py`: Script principal de exemplo
+  - `requirements.txt` e `pyproject.toml`: Dependências do projeto
+  - `data/`: Dados de exemplo para experimentos
+  - `exemplos/`: Notebooks Jupyter com tutoriais e demonstrações
 
 ---
 

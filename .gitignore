@@ -1,2 +1,9 @@
 .env
 .venv
+data
+
+
+projeto-octo/exemplos/.db
+/projeto-octo/exemplos/.env
+/projeto-octo/exemplos/.venv 
+/projeto-octo/exemplos/arquivos

@@ -1,0 +1,18 @@
+[project]
+name = "tentaculo-mode"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "aiogram>=3.26.0",
+    "aiosqlite>=0.22.1",
+    "edge-tts>=7.2.7",
+    "google-generativeai>=0.8.6",
+    "openai>=2.26.0",
+    "openai-whisper>=20250625",
+    "pydantic>=2.12.5",
+    "pypdf>=6.8.0",
+    "python-dotenv>=1.2.2",
+    "pyyaml>=6.0.3",
+]

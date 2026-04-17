@@ -54,5 +54,7 @@ if __name__ == "__main__":
 
         result = graph.invoke({"messages": [human_message]}, config=config)
 
+        print(Markdown(str(result["messages"][-1].usage_metadata)))
+        print(Markdown("---"))
         print(Markdown(str(result["messages"][-1].content)))
         print(Markdown("---"))

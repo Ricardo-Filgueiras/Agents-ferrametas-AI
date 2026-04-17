@@ -1,0 +1,27 @@
+# Core
+langchain
+langchain-community
+langchain-ollama
+langchain-google-genai  # Adicionado suporte ao Gemini
+python-dotenv
+
+# UI & Observability
+rich
+
+# Audio & STT
+faster-whisper
+pyaudio
+sounddevice
+numpy
+scipy
+openwakeword
+onnxruntime
+
+# TTS & Audio Output
+pyttsx3
+soundfile
+
+# Utils
+pydantic
+requests
+tqdm

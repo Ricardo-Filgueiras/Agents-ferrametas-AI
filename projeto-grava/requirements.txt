@@ -1,0 +1,16 @@
+ipykernel
+openai>=1.0.0
+streamlit
+streamlit_webrtc
+pydub
+langchain-core
+langchain-openai
+langchain-community
+python-dotenv
+langchain-google-genai
+ollama
+langchain-ollama
+langchain
+requests
+pydantic
+jupyter

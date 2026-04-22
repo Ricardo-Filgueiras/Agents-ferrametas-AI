@@ -1,66 +1,62 @@
 import os
-import requests
 from firecrawl import FirecrawlApp
 
 class ScrapingService:
     def __init__(self):
         self.api_key = os.getenv("FIRECRAWL_API_KEY")
         self.api_url = os.getenv("FIRECRAWL_API_URL")
-
         self.app = FirecrawlApp(api_key=self.api_key, api_url=self.api_url)
     
     def scrape_website(self, url, collection_name):
-        """Scraping completo em uma função"""
+        """Executa o mapeamento e o scraping de um site"""
         try:
-            # 1. Mapear URLs - CORREÇÃO AQUI
+            # 1. Mapear o site para encontrar URLs relevantes
             map_result = self.app.map_url(url)
             
-            # O map_result é um objeto MapResponse, não um dict
-            # Vamos acessar os links diretamente
-            if hasattr(map_result, 'links'):
-                links = map_result.links
-            elif hasattr(map_result, 'data') and hasattr(map_result.data, 'links'):
-                links = map_result.data.links[:10]
+            # Extrair links (suporta diferentes versões do SDK)
+            links = []
+            if isinstance(map_result, dict):
+                links = map_result.get("links", []) or map_result.get("data", {}).get("links", [])
             else:
-                # Se não conseguir acessar, tentar como dict (fallback)
-                links = getattr(map_result, 'links', [])[:10]
+                links = getattr(map_result, 'links', []) or getattr(getattr(map_result, 'data', {}), 'links', [])
+            
+            # Limitar a 10 páginas para evitar estourar limites/tempo no protótipo
+            links = links[:10]
             
             if not links:
-                raise Exception("Nenhum link encontrado!")
+                return {"success": False, "error": "Nenhum link encontrado no site informado."}
             
-            print(f"Encontrados {len(links)} links")
-            
-            # 2. Fazer scraping - CORREÇÃO: batch_scrape_urls só aceita 1 argumento
+            # 2. Executar o batch scraping das URLs encontradas
             scrape_result = self.app.batch_scrape_urls(links)
             
-            # 3. Extrair dados do resultado
-            if hasattr(scrape_result, 'data'):
-                scraped_data = scrape_result.data
+            # Extrair os dados processados
+            scraped_data = []
+            if isinstance(scrape_result, dict):
+                scraped_data = scrape_result.get("data", [])
             else:
-                scraped_data = scrape_result.get("data", []) if hasattr(scrape_result, 'get') else []
+                scraped_data = getattr(scrape_result, 'data', [])
             
-            # 4. Salvar arquivos
+            # 3. Salvar o conteúdo em arquivos Markdown locais
             collection_path = f"data/collections/{collection_name}"
             os.makedirs(collection_path, exist_ok=True)
             
             saved_count = 0
             for i, page in enumerate(scraped_data, 1):
-                # Acessar markdown do objeto page
-                if hasattr(page, 'markdown') and page.markdown:
-                    markdown_content = page.markdown
-                elif hasattr(page, 'data') and hasattr(page.data, 'markdown'):
-                    markdown_content = page.data.markdown
-                elif isinstance(page, dict) and page.get("markdown"):
-                    markdown_content = page["markdown"]
+                # Tentar extrair o markdown de várias formas possíveis (SDK robusto)
+                markdown_content = ""
+                if isinstance(page, dict):
+                    markdown_content = page.get("markdown") or page.get("data", {}).get("markdown")
                 else:
-                    continue
+                    markdown_content = getattr(page, 'markdown', "") or getattr(getattr(page, 'data', {}), 'markdown', "")
                 
-                with open(f"{collection_path}/{i}.md", "w", encoding="utf-8") as f:
-                    f.write(markdown_content)
-                saved_count += 1
+                if markdown_content:
+                    file_path = os.path.join(collection_path, f"doc_{i}.md")
+                    with open(file_path, "w", encoding="utf-8") as f:
+                        f.write(markdown_content)
+                    saved_count += 1
             
             return {"success": True, "files": saved_count}
             
         except Exception as e:
-            print(f"Erro no scraping: {str(e)}")
-            return {"success": False, "error": str(e)} 
+            return {"success": False, "error": str(e)}
+ 

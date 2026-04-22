@@ -1,9 +1,9 @@
 streamlit
 python-dotenv
-groq
-firecrawl
+firecrawl-py
 langchain
 langchain-community
-langchain-groq
+langchain-core
+langchain-text-splitters
+langchain-ollama
 faiss-cpu
-sentence-transformers 

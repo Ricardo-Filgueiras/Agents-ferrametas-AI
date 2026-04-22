@@ -1,88 +1,80 @@
 import os
 from langchain_community.document_loaders import DirectoryLoader, TextLoader
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_ollama import ChatOllama, OllamaEmbeddings
 from langchain_community.vectorstores import FAISS
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_groq import ChatGroq
-from langchain.chains import RetrievalQA
-from langchain.prompts import PromptTemplate
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import RunnablePassthrough
+from langchain_core.output_parsers import StrOutputParser
+from dotenv import load_dotenv
+
+load_dotenv()
 
 class RAGService:
     def __init__(self):
-        # Inicializar embeddings
-        self.embeddings = HuggingFaceEmbeddings(
-            model_name="all-MiniLM-L6-v2"
-        )
+        # Configurações do ambiente
+        self.model_llm = os.getenv("MODEL_LLM", "llama3.2:3b")
+        self.model_emb = os.getenv("MODEL_EMBEDDING", "nomic-embed-text")
         
-        # Inicializar LLM
-        self.llm = ChatGroq(
-            groq_api_key=os.getenv("GROQ_API_KEY"),
-            model_name="llama3-8b-8192"
-        )
-        
-        # Text splitter
-        self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=200
-        )
+        # Inicialização dos componentes
+        self.embeddings = OllamaEmbeddings(model=self.model_emb)
+        self.llm = ChatOllama(model=self.model_llm, temperature=0)
+        self.text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
         
         self.vector_store = None
-        self.qa_chain = None
-    
+        self.chain = None
+
     def load_collection(self, collection_name):
-        """Carrega documentos e cria vector store"""
-        collection_path = f"data/collections/{collection_name}"
-        
-        # Carregar documentos
-        loader = DirectoryLoader(
-            collection_path,
-            glob="**/*.md",
-            loader_cls=TextLoader,
-            loader_kwargs={'encoding': 'utf-8'}
-        )
-        
-        documents = loader.load()
-        
-        if not documents:
+        """Carrega documentos e constrói a chain usando LCEL"""
+        path = f"data/collections/{collection_name}"
+        if not os.path.exists(path):
             return False
         
-        # Dividir em chunks
-        texts = self.text_splitter.split_documents(documents)
+        # Carregamento e Split
+        loader = DirectoryLoader(
+            path, 
+            glob="**/*.md", 
+            loader_cls=TextLoader, 
+            loader_kwargs={'encoding': 'utf-8'}
+        )
+        docs = loader.load()
+        if not docs:
+            return False
         
-        # Criar vector store
-        self.vector_store = FAISS.from_documents(texts, self.embeddings)
+        chunks = self.text_splitter.split_documents(docs)
+        self.vector_store = FAISS.from_documents(chunks, self.embeddings)
         
-        # Criar chain de QA
+        # --- Construção da Chain usando LCEL (O padrão mais moderno) ---
+        retriever = self.vector_store.as_retriever(search_kwargs={"k": 3})
+        
         template = """
-            Use os seguintes documentos para responder a pergunta. Se você não souber a resposta, diga que não sabe.
-
-            {context}
-
-            Pergunta: {question}
-            Resposta:
+        Você é o Docstóteles, um assistente especializado em documentações técnicas.
+        Use os fragmentos de contexto abaixo para responder à pergunta de forma técnica e objetiva.
+        Se não souber a resposta com base no contexto, diga apenas que não encontrou essa informação.
+        
+        CONTEXTO:
+        {context}
+        
+        PERGUNTA: {question}
+        
+        RESPOSTA:
         """
+        prompt = ChatPromptTemplate.from_template(template)
 
-        prompt = PromptTemplate(
-            template=template,
-            input_variables=["context", "question"]
+        # Padrão Pipe (|) - Evita dependência de langchain.chains
+        self.chain = (
+            {"context": retriever, "question": RunnablePassthrough()}
+            | prompt
+            | self.llm
+            | StrOutputParser()
         )
-        
-        self.qa_chain = RetrievalQA.from_chain_type(
-            llm=self.llm,
-            chain_type="stuff",
-            retriever=self.vector_store.as_retriever(search_kwargs={"k": 3}),
-            chain_type_kwargs={"prompt": prompt}
-        )
-        
         return True
-    
+
     def ask_question(self, question):
-        """Faz pergunta usando RAG"""
-        if not self.qa_chain:
-            return "Nenhuma coleção carregada."
-        
+        """Executa a consulta na chain moderna"""
+        if not self.chain:
+            return "Selecione uma coleção primeiro."
         try:
-            result = self.qa_chain.run(question)
-            return result
+            return self.chain.invoke(question)
         except Exception as e:
-            return f"Erro ao processar pergunta: {str(e)}" 
+            return f"Erro na consulta: {str(e)}"

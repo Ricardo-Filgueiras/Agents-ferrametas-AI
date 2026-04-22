@@ -1,381 +1,53 @@
-# Ferrametas-de-IA 🤖
+# 🤖 Agents & AI Tools Stack
 
-**Até onde é possível usar IA no nosso dia a dia?**
+Bem-vindo ao repositório central da minha stack de **Inteligência Artificial e Agentes Autônomos**. Este ecossistema reúne diversos projetos focados em processamento local, automação inteligente e interfaces modernas para interação com LLMs.
 
-Este repositório contém projetos experimentais para explorar a integração de Inteligência Artificial (IA) em aplicações práticas, utilizando frameworks modernos como **LangChain** e **Agno**.
-
----
-
-## 📋 Índice
-
-- [Visão Geral](#visão-geral)
-- [Estrutura do Projeto](#estrutura-do-projeto)
-- [Pré-requisitos](#pré-requisitos)
-- [Instalação do UV](#instalação-do-uv)
-- [Configuração do Projeto](#configuração-do-projeto)
-- [Como Usar](#como-usar)
-- [Dependências](#dependências)
-- [Contribuindo](#contribuindo)
+O objetivo deste repositório é servir como base sólida para o desenvolvimento de ferramentas que priorizam a privacidade, a eficiência e a modularidade.
 
 ---
 
-## 🎯 Visão Geral
+## 🚀 Ecossistema de Projetos
 
-Este projeto explora diferentes abordagens para integrar IA em aplicações:
+Abaixo estão os principais módulos e ferramentas que compõem esta stack:
 
-- **Projeto Agno**: Utiliza o framework Agno para criação de agentes inteligentes
-- **Projeto LangChain**: Implementa soluções RAG (Retrieval Augmented Generation) combinando LangChain com OpenAI e Google Gemini
+### 📽️ [Projeto Grava](projeto-grava/)
+Uma solução de "MeetGPT" 100% local. Captura áudio/vídeo de reuniões, realiza transcrição offline via `faster-whisper` e gera atas inteligentes usando **Ollama** e **LangChain**.
 
-Ambos os projetos utilizam **UV** para gerenciamento de dependências e ambientes virtuais, oferecendo uma experiência rápida e eficiente.
+### 🏗️ [Projeto Graph](projeto-graph/)
+Infraestrutura profissional para agentes de IA baseada em **LangGraph**. Focado em arquitetura modular, escalabilidade e persistência de estado de longa duração com SQLite.
 
----
+### 📚 [Projeto Docstóteles](projeto-docstoteles/)
+Transforma qualquer documentação web em um assistente de IA. Utiliza **Fire Crawl** para scraping inteligente e um pipeline de **RAG** (Retrieval-Augmented Generation) para respostas precisas e atualizadas.
 
+### 🐙 [Projeto Octo](projeto-octo/)
+Laboratório de experimentos práticos com LLMs locais. Demonstra integrações de LangChain com Ollama, uso de embeddings, chains e automação de desenvolvimento assistida por IA.
 
-## 🏗️ Estrutura do Projeto
-
-```
-Agents-ferrametas-AI/
-├── README.md                          # Este arquivo
-├── LICENSE                            # Licença do projeto
-│
-├── projeto-agno/                      # Projeto com framework Agno
-│   ├── pyproject.toml                # Configuração do projeto (UV)
-│   ├── requirements.txt               # Dependências alternativas (pip)
-│   ├── README.md                      # Documentação específica
-│   ├── main.py                        # Ponto de entrada principal
-│   └── hello.py                       # Script de teste
-│
-├── projeto-langchain/                 # Projeto com LangChain e RAG
-│   ├── requirements.txt               # Dependências do projeto
-│   ├── app.py                         # Aplicação principal RAG
-│   ├── gem.py                         # Implementação com Google Gemini
-│   ├── gem2.py                        # Variação com Gemini
-│   ├── openai.py                      # Integração com OpenAI
-│   └── data/
-│       └── dadosbasev1.csv           # Base de dados para RAG
-│
-└── projeto-octo/                      # IA local com LangChain e Ollama
-  ├── main.py                        # Script principal de exemplo
-  ├── requirements.txt               # Dependências do projeto
-  ├── pyproject.toml                  # Configuração do projeto
-  ├── README.md                      # Documentação específica do projeto-octo
-  ├── data/                          # Dados de exemplo para experimentos
-  │   ├── ytcanal_normalizado.csv
-  │   ├── ytdata_normalizada.csv
-  │   ├── ytdata.csv
-  │   ├── ytoutros_normalizado.csv
-  │   ├── ytupdatediariacanal.csv
-  │   └── ytupdateoutros.csv
-  └── exemplos/                      # Notebooks Jupyter com tutoriais e demonstrações
-    ├── 02_models.ipynb
-    ├── 03_models_avancado.ipynb
-    ├── 04_prompt_templates.ipynb
-    ├── 05_output_parsers.ipynb
-    ├── 06_chains_com_lcel.ipynb
-    ├── 07_chains_e_langsmith.ipynb
-    ├── 08_runnables.ipynb
-    ├── 09_roteamento.ipynb
-    ├── 10_memory.ipynb
-    ├── 12_document_loaders.ipynb
-    ├── 13_text_splitting.ipynb
-    ├── 14_embeddings.ipynb
-    ├── 15_vector_stores.ipynb
-    ├── 16_retrieval.ipynb
-    ├── 17_pipeline_rag.ipynb
-    └── desenvolvimento.ipynb
-```
-
-
-### Detalhamento dos Componentes
-
-#### **projeto-agno/**
-- **Framework**: Agno (agentes inteligentes)
-- **Python**: >= 3.12
-- **Propósito**: Experimentar com agentes de IA utilizando o framework Agno
-- **Arquivos principais**:
-  - `main.py`: Lógica principal da aplicação
-  - `hello.py`: Script de demonstração
-
-#### **projeto-langchain/**
-- **Framework**: LangChain + OpenAI/Google Gemini
-- **Padrão**: RAG (Retrieval Augmented Generation)
-- **Propósito**: Criar assistentes inteligentes baseados em documentos
-- **Arquivos principais**:
-  - `app.py`: Implementação principal com OpenAI
-  - `gem.py` e `gem2.py`: Alternativas com Google Gemini
-  - `openai.py`: Configurações específicas OpenAI
-  - `data/dadosbasev1.csv`: Base de conhecimento para o RAG
-
-#### **projeto-octo/**
-- **Frameworks**: LangChain, Ollama, Python, Jupyter
-- **Propósito**: Demonstrar o uso de modelos de linguagem (LLMs) localmente, integrando LangChain, Ollama e exemplos práticos para experimentos, prototipagem e desenvolvimento de aplicações de IA generativa, com destaque para uso local e integração com o Visual Studio Code.
-- **Principais recursos**:
-  - Execução local de LLMs (Llama, Mistral, Phi, etc) via Ollama
-  - Integração com LangChain para chains, embeddings, retrieval e mais
-  - Notebooks práticos em `exemplos/` para uso básico e avançado
-  - Foco em desenvolvimento assistido por IA no VS Code
-- **Arquivos principais**:
-  - `main.py`: Script principal de exemplo
-  - `requirements.txt` e `pyproject.toml`: Dependências do projeto
-  - `data/`: Dados de exemplo para experimentos
-  - `exemplos/`: Notebooks Jupyter com tutoriais e demonstrações
+### 🛰️ [Projeto Tenmode](projeto-tenmode/)
+Agente Pessoal ("Tentáculo Mode") com interface via **Telegram**. Opera 100% localmente, possui motor ReAct para uso de ferramentas e sistema de *Hot-Reload* para carregamento dinâmico de habilidades (*Skills*).
 
 ---
 
-## 📦 Pré-requisitos
+## 🛠️ Outros Projetos em Desenvolvimento
+Os seguintes projetos fazem parte da stack e estão em fases iniciais de desenvolvimento ou servem como módulos de suporte:
 
-Antes de começar, você precisa ter:
-
-- **Python** 3.12 ou superior
-- **Git** (para clonar o repositório)
-- **Conexão com Internet** (para baixar dependências)
-
-### Verificar versão do Python
-
-```bash
-python --version
-```
-
-Se a versão for menor que 3.12, atualize o Python.
+*   **projeto-agents**: (Em breve)
+*   **projeto-agno**: (Em breve)
+*   **projeto-cubo**: (Em breve)
+*   **projeto-langchain**: (Em breve)
+*   **projeto-nova**: (Em breve)
 
 ---
 
-## 🚀 Instalação do UV
+## ⚙️ Stack Tecnológica Base
 
-### O que é UV?
-
-**UV** é um gerenciador de pacotes Python super rápido escrito em Rust. Ele substitui `pip`, `venv` e `virtualenv` com uma solução unificada, mais rápida e confiável.
-
-**Vantagens do UV:**
-- ⚡ Até 10x mais rápido que pip
-- 🔒 Melhor resolução de dependências
-- 📦 Gerencia ambientes virtuais automaticamente
-- 🎯 Configuração centralizada via `pyproject.toml`
-
-### Passo 1: Instalar o UV
-
-#### **Windows (PowerShell)**
-
-```powershell
-# Opção 1: Usando Invoke-WebRequest
-powershell -ExecutionPolicy BypassUser -c "irm https://astral.sh/uv/install.ps1 | iex"
-
-# Opção 2: Usando winget (se disponível)
-winget install astral-sh.uv
-```
-
-#### **macOS / Linux**
-
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-Após a instalação, adicione UV ao PATH ou reinicie seu terminal.
-
-### Passo 2: Verificar a Instalação
-
-```bash
-uv --version
-```
-
-Você deverá ver a versão instalada, por exemplo: `uv 0.1.0`
-
-### Passo 3: Criar um Alias (Opcional, recomendado)
-
-Se em Windows você preferir usar `uv` em vez de `uvx`:
-
-```powershell
-# Verificar se uv está no PATH
-where.exe uv
-```
+*   **Orquestração:** LangChain, LangGraph.
+*   **LLMs Locais:** Ollama (Llama 3.2, Phi 3, etc.).
+*   **Interface:** Streamlit, Telegram API, CLI (Rich).
+*   **Banco de Dados:** SQLite (com persistência de estado).
+*   **Processamento de Mídia:** PyAV, Faster-Whisper.
+*   **Gerenciamento de Pacotes:** [UV](https://github.com/astral-sh/uv).
 
 ---
 
-## ⚙️ Configuração do Projeto
-
-### Clone o Repositório
-
-```bash
-git clone https://github.com/seu-usuario/Agents-ferrametas-AI.git
-cd Agents-ferrametas-AI
-```
-
-### Configure as Variáveis de Ambiente
-
-Crie um arquivo `.env` na raiz de cada projeto com suas chaves de API:
-
-#### **projeto-agno/.env**
-
-```env
-# Adicione suas chaves de API necessárias
-# AGNO_API_KEY=sua_chave_aqui
-```
-
-#### **projeto-langchain/.env**
-
-```env
-# Chave OpenAI (obrigatória para app.py)
-OPENAI_API_KEY=sk-seu-token-aqui
-
-# Chave Google Gemini (para gem.py e gem2.py)
-GOOGLE_API_KEY=sua-chave-google-aqui
-```
-
-**⚠️ Segurança**: Nunca commite o arquivo `.env` ao repositório. Ele deve estar no `.gitignore`.
-
-### Instalar Dependências com UV
-
-#### **Para projeto-agno:**
-
-```bash
-cd projeto-agno
-
-# Instalar dependências
-uv sync
-
-# Ativar o ambiente virtual (se necessário)
-.venv\Scripts\activate  # Windows
-source .venv/bin/activate  # macOS/Linux
-```
-
-#### **Para projeto-langchain:**
-
-```bash
-cd projeto-langchain
-
-# Instalar dependências com pip (compatível com uv também)
-uv pip install -r requirements.txt
-
-# Ou criar ambiente virtual primeiro
-uv venv .venv
-.venv\Scripts\activate  # Windows
-source .venv/bin/activate  # macOS/Linux
-uv pip install -r requirements.txt
-```
-
----
-
-## 🎮 Como Usar
-
-### Executar projeto-agno
-
-```bash
-cd projeto-agno
-
-# Executar o programa principal
-python main.py
-
-# Ou executar o script de teste
-python hello.py
-```
-
-**Saída esperada:**
-```
-Hello from projeto-agno!
-```
-
-### Executar projeto-langchain
-
-```bash
-cd projeto-langchain
-
-# Executar aplicação RAG
-python app.py
-```
-
-Este comando:
-1. Carrega os dados de `dadosbasev1.csv`
-2. Cria embeddings usando OpenAI
-3. Constrói um índice FAISS para busca vetorial
-4. Inicializa um modelo de linguagem (GPT-4o-mini por padrão)
-5. Ativa o sistema RAG para responder perguntas baseado nos documentos
-
----
-
-## 📚 Dependências
-
-### projeto-agno
-
-| Pacote | Versão | Descrição |
-|--------|--------|-----------|
-| agno | >=2.4.8 | Framework para criar agentes inteligentes |
-| python-dotenv | >=1.2.1 | Carrega variáveis de ambiente do `.env` |
-
-### projeto-langchain
-
-| Pacote | Descrição |
-|--------|-----------|
-| langchain-core | Core do LangChain |
-| langchain-openai | Integração com OpenAI |
-| langchain-community | Ferramentas comunitárias do LangChain |
-| python-dotenv | Gerenciador de variáveis de ambiente |
-| langchain-google-genai | Integração com Google Generative AI |
-
----
-
-## 🔧 Troubleshooting
-
-### Erro: "uv command not found"
-
-**Solução Windows:**
-```powershell
-# Adicionar ao PATH manualmente
-$env:Path += ";C:\Users\SeuUsuário\.cargo\bin"
-```
-
-**Solução macOS/Linux:**
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-source ~/.bashrc
-```
-
-### Erro: "ModuleNotFoundError: No module named 'dotenv'"
-
-```bash
-# Reinstalar dependências
-cd seu-projeto
-uv sync --force
-```
-
-### Erro de conexão com API (OpenAI/Google)
-
-- Verifique se o arquivo `.env` existe na pasta correta
-- Confirme que as chaves de API estão corretas e ativas
-- Verifique sua conexão com a Internet
-
----
-
-## 💡 Próximos Passos
-
-1. **Customizar prompts**: Edite os templates de prompts em `app.py`
-2. **Adicionar novos dados**: Coloque mais arquivos CSV em `data/`
-3. **Integrar com interfaces**: Crie um frontend com Streamlit ou FastAPI
-4. **Expandir modelos**: Teste outros modelos de linguagem
-
----
-
-## 📝 Contribuindo
-
-Contribuições são bem-vindas! Por favor:
-
-1. Faça um fork do repositório
-2. Crie uma branch para sua feature (`git checkout -b feature/AmazingFeature`)
-3. Commit suas mudanças (`git commit -m 'Add some AmazingFeature'`)
-4. Push para a branch (`git push origin feature/AmazingFeature`)
-5. Abra um Pull Request
-
----
-
-## 📄 Licença
-
-Este projeto está licenciado sob a MIT License - veja o arquivo [LICENSE](LICENSE) para detalhes.
-
----
-
-## 📧 Contato
-
-Para dúvidas ou sugestões, entre em contato ou abra uma issue no repositório.
-
----
-
-**Última atualização**: Fevereiro de 2026
+## 📝 Licença
+Este repositório está sob a licença MIT. Sinta-se à vontade para explorar e adaptar os agentes para suas necessidades.

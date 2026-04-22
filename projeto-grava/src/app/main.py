@@ -99,22 +99,22 @@ def transcreve_audio(caminho_audio):
     texto = " ".join([segment.text for segment in segments])
     return texto
 
-def chat_openai(mensagem, modelo='llama3.2:3b'):
+def chat_openai(mensagem, modelo_default='gpt-4o-mini'):
     provedor = st.session_state.get('provedor', 'OpenAI')
     
     if provedor == 'Ollama (Local)':
         cliente_atual = client_local
-        modelo_atual = st.session_state.get('modelo_ollama', modelo)
+        modelo_atual = st.session_state.get('modelo_ollama', 'llama3.2:3b')
     else:
         cliente_atual = client
-        modelo_atual = modelo
+        modelo_atual = modelo_default
 
     mensagens = [{'role': 'user', 'content': mensagem}]
     resposta = cliente_atual.chat.completions.create(
         model=modelo_atual,
         messages=mensagens,
         )
-    return resposta.choices[0].message.content
+    return resposta.choices[0].message.content, modelo_atual
 
 # TAB GRAVA REUNIÃO =====================
 
@@ -195,7 +195,11 @@ def tab_grava_reuniao():
                         try:
                             transcricao_chunck = transcreve_audio(pasta_reuniao / 'audio_temp.mp3')
                             transcricao += f" {transcricao_chunck}"
-                            salva_arquivo(pasta_reuniao / 'transcricao.txt', transcricao)
+                            
+                            # Adiciona nota do modelo no final da transcrição
+                            nota_modelo = "\n\n---\n*Transcrição realizada pelo modelo: Faster-Whisper (Base)*"
+                            salva_arquivo(pasta_reuniao / 'transcricao.txt', transcricao + nota_modelo)
+                            
                             transcricao_container.markdown(transcricao)
                         except Exception as e:
                             st.error(f"Erro na transcrição: {e}")
@@ -284,14 +288,16 @@ def gerar_resumo(pasta_reuniao):
     if transcricao == '':
         st.error('Não há transcrição para gerar resumo.')
         return
-    resumo = chat_openai(mensagem=PROMPT.format(transcricao))
+    provedor = st.session_state.get('provedor', 'OpenAI')
+    resumo, modelo_utilizado = chat_openai(mensagem=PROMPT.format(transcricao))
+    resumo += f'\n\n---\n*Resumo gerado pelo modelo: {modelo_utilizado} ({provedor})*'
     salva_arquivo(pasta_reuniao / 'resumo.txt', resumo)
 
 
 # MAIN =====================
 def main():
-    st.set_page_config(page_title="MeetGPT", page_icon="🎙️")
-    st.header('MeetGPT 🎙️', divider='rainbow')
+    st.set_page_config(page_title="Projeto-Gravando", page_icon="🎙️")
+    st.header('Projeto-Gravando 🎙️', divider='rainbow')
     
     # Seleção de Provedor na Barra Lateral
     with st.sidebar:
@@ -317,6 +323,31 @@ def main():
             st.warning('Usando API da OpenAI (Nuvem)')
         
         st.divider()
+        st.subheader('🔍 Status do Sistema')
+        
+        # Status do Whisper
+        col1, col2 = st.columns([1, 4])
+        with col1:
+            st.write('🎙️')
+        with col2:
+            st.caption('Whisper: **Pronto (Local)**')
+        
+        # Status do Ollama
+        col3, col4 = st.columns([1, 4])
+        with col3:
+            if st.session_state.get('provedor') == 'Ollama (Local)':
+                if listar_modelos_ollama():
+                    st.write('🟢')
+                else:
+                    st.write('🔴')
+            else:
+                st.write('⚪')
+        with col4:
+            if st.session_state.get('provedor') == 'Ollama (Local)':
+                st.caption('Ollama: **Ativo**' if listar_modelos_ollama() else 'Ollama: **Desconectado**')
+            else:
+                st.caption('Resumo: **OpenAI (Nuvem)**')
+
         st.caption('Transcrição: Faster-Whisper (Local)')
         st.caption('Modelo Transcrição: Base')
 

@@ -1,11 +1,11 @@
 import os
 import streamlit as st
-from service.ragv2 import RAGServiceV2
+from service.rag import RAGService
 
 @st.cache_resource
 def get_rag_service(collection_name):
     """Cria e carrega a instância do RAGV2 com cache do Streamlit"""
-    rag = RAGServiceV2()
+    rag = RAGService()
     if rag.load_collection(collection_name):
         return rag
     return None

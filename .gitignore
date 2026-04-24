@@ -209,6 +209,10 @@ cython_debug/
 # Ruff stuff:
 .ruff_cache/
 
+# Binários locais (não devem ser versionados)
+projeto-grava/src/app/ffmpeg.exe
+*.exe
+
 # PyPI configuration file
 .pypirc
 

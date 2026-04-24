@@ -2,171 +2,285 @@ from pathlib import Path
 from datetime import datetime
 import time
 import queue
-import requests
-
-from streamlit_webrtc import WebRtcMode, webrtc_streamer
-import streamlit as st
-
+import subprocess
+import sys
 import pydub
-import openai
 import av
-from faster_whisper import WhisperModel
+import streamlit as st
+from streamlit_webrtc import WebRtcMode, webrtc_streamer
 from dotenv import load_dotenv, find_dotenv
 
-# Configuração de Caminhos
-PASTA_ARQUIVOS = Path(__file__).parent.parent.parent / 'data'
-PASTA_ARQUIVOS.mkdir(exist_ok=True)
+from utils import (
+    PASTA_ARQUIVOS, salva_arquivo, le_arquivo,
+    listar_modelos_ollama, listar_reunioes
+)
+from ia_models import (
+    transcreve_audio, chat_openai, gerar_resumo
+)
+from audio import (
+    adiciona_chunck_audio, processa_audio_container
+)
+from video import (
+    processa_video_container, flush_container, bgr_para_av_frame
+)
+from printela import ScreenRecorder
 
-PROMPT = '''
-Faça o resumo do texto delimitado por #### 
-O texto é a transcrição de uma reunião.
-O resumo deve contar com os principais assuntos abordados.
-O resumo deve ter no máximo 300 caracteres.
-O resumo deve estar em texto corrido.
-No final, devem ser apresentados todos acordos e combinados 
-feitos na reunião no formato de bullet points.
-
-O formato final que eu desejo é:
-
-Resumo reunião:
-- escrever aqui o resumo.
-
-Acordos da Reunião:
-- acordo 1
-- acordo 2
-- acordo 3
-- acordo n
-
-texto: ####{}####
-'''
-
-# Carrega variáveis de ambiente
 _ = load_dotenv(find_dotenv())
 
-def salva_arquivo(caminho_arquivo, conteudo):
-    with open(caminho_arquivo, 'w', encoding='utf-8') as f:
-        f.write(conteudo)
+MODELOS_WHISPER = ['tiny', 'base', 'small', 'medium']
 
-def le_arquivo(caminho_arquivo):
-    if caminho_arquivo.exists():
-        with open(caminho_arquivo, 'r', encoding='utf-8') as f:
-            return f.read()
-    else:
-        return ''
+# CSS injetado no iframe do webrtc_streamer via JavaScript (mesmo origin → permitido).
+# Transforma o botão padrão num botão circular de gravador.
+_RECORDER_BTN_JS = """
+<script>
+(function () {
+    var START_CSS = [
+        "width:88px!important",
+        "height:88px!important",
+        "border-radius:50%!important",
+        "background:radial-gradient(circle at 36% 36%,#fc8181,#9b1c1c)!important",
+        "border:4px solid rgba(255,255,255,0.18)!important",
+        "color:#fff!important",
+        "font-size:10px!important",
+        "font-weight:800!important",
+        "letter-spacing:2px!important",
+        "text-transform:uppercase!important",
+        "cursor:pointer!important",
+        "box-shadow:0 6px 28px rgba(155,28,28,.75),inset 0 2px 0 rgba(255,255,255,.25)!important",
+        "transition:transform .12s,box-shadow .12s!important",
+        "outline:none!important"
+    ].join(";");
 
-def listar_modelos_ollama():
+    var IFRAME_BODY_CSS = [
+        "margin:0!important",
+        "background:transparent!important",
+        "display:flex!important",
+        "align-items:center!important",
+        "justify-content:center!important",
+        "min-height:110px!important"
+    ].join(";");
+
+    function apply() {
+        var frames = document.querySelectorAll("iframe");
+        frames.forEach(function (f) {
+            try {
+                var doc = f.contentDocument;
+                if (!doc || !doc.body) return;
+                var btn = doc.querySelector("button");
+                if (!btn || doc.querySelector("#_rec_style")) return;
+
+                // Injeta folha de estilos no iframe
+                var s = doc.createElement("style");
+                s.id = "_rec_style";
+                s.textContent =
+                    "html,body{" + IFRAME_BODY_CSS + "}" +
+                    "button{" + START_CSS + "}" +
+                    "button:hover{transform:scale(1.07)!important;" +
+                    "box-shadow:0 10px 40px rgba(155,28,28,.95)," +
+                    "inset 0 2px 0 rgba(255,255,255,.25)!important}" +
+                    "button:active{transform:scale(0.94)!important}";
+                doc.head.appendChild(s);
+            } catch (e) {}
+        });
+    }
+
+    // Tenta imediatamente e em intervalos crescentes para pegar o iframe
+    // após o componente montar (o React pode demorar alguns frames)
+    apply();
+    [150, 400, 900, 2000, 4000].forEach(function (d) { setTimeout(apply, d); });
+
+    // MutationObserver para capturar re-renders do Streamlit
+    var mo = new MutationObserver(apply);
+    mo.observe(document.body, { childList: true, subtree: true });
+    setTimeout(function () { mo.disconnect(); }, 30000);
+})();
+</script>
+"""
+
+
+def _merge_audio_parts(parts: list, output_path: Path):
+    combined = pydub.AudioSegment.empty()
+    for part in parts:
+        combined += pydub.AudioSegment.from_mp3(part)
+    combined.export(output_path, format='mp3')
+    for part in parts:
+        part.unlink(missing_ok=True)
+
+
+def _optimize_video_for_web(video_path: Path) -> bool:
+    """
+    Remux MP4 movendo o moov atom para o início do arquivo (faststart).
+    Sem re-encoding — apenas reorganiza os atoms. Necessário para reprodução
+    progressiva no navegador, pois o PyAV grava o moov ao final por padrão.
+    Retorna True se bem-sucedido.
+    """
+    ffmpeg_local = Path(__file__).parent / ('ffmpeg.exe' if sys.platform == 'win32' else 'ffmpeg')
+    ffmpeg_cmd = str(ffmpeg_local) if ffmpeg_local.exists() else 'ffmpeg'
+
+    temp_path = video_path.with_suffix('.tmp.mp4')
     try:
-        response = requests.get('http://localhost:11434/api/tags', timeout=2)
-        if response.status_code == 200:
-            return [m['name'] for m in response.json().get('models', [])]
-    except Exception:
-        return []
-    return []
-
-def listar_reunioes():
-    lista_reunioes = PASTA_ARQUIVOS.glob('*')
-    lista_reunioes = [p for p in lista_reunioes if p.is_dir()]
-    lista_reunioes.sort(reverse=True)
-    reunioes_dict = {}
-    for pasta_reuniao in lista_reunioes:
-        data_reuniao = pasta_reuniao.stem
-        try:
-            ano, mes, dia, hora, min, seg = data_reuniao.split('_')
-            label = f'{ano}/{mes}/{dia} {hora}:{min}:{seg}'
-        except ValueError:
-            label = data_reuniao
-        
-        titulo = le_arquivo(pasta_reuniao / 'titulo.txt')
-        if titulo != '':
-            label += f' - {titulo}'
-        reunioes_dict[data_reuniao] = label
-    return reunioes_dict
-
-# CONFIGURAÇÃO DOS CLIENTES =====================
-client = openai.OpenAI()
-client_local = openai.OpenAI(base_url='http://localhost:11434/v1', api_key='ollama')
-
-# CONFIGURAÇÃO DOS MODELOS LOCAIS =====================
-# Inicializamos o Whisper local (modelo 'base' é um bom equilíbrio entre velocidade e precisão)
-@st.cache_resource
-def carregar_whisper():
-    return WhisperModel("base", device="cpu", compute_type="int8")
-
-whisper_local = carregar_whisper()
-
-def transcreve_audio(caminho_audio):
-    segments, info = whisper_local.transcribe(str(caminho_audio), beam_size=5, language='pt')
-    texto = " ".join([segment.text for segment in segments])
-    return texto
-
-def chat_openai(mensagem, modelo_default='gpt-4o-mini'):
-    provedor = st.session_state.get('provedor', 'OpenAI')
-    
-    if provedor == 'Ollama (Local)':
-        cliente_atual = client_local
-        modelo_atual = st.session_state.get('modelo_ollama', 'llama3.2:3b')
-    else:
-        cliente_atual = client
-        modelo_atual = modelo_default
-
-    mensagens = [{'role': 'user', 'content': mensagem}]
-    resposta = cliente_atual.chat.completions.create(
-        model=modelo_atual,
-        messages=mensagens,
+        video_path.rename(temp_path)
+        result = subprocess.run(
+            [ffmpeg_cmd, '-y', '-i', temp_path.as_posix(),
+             '-movflags', '+faststart', '-c', 'copy', video_path.as_posix()],
+            capture_output=True
         )
-    return resposta.choices[0].message.content, modelo_atual
+        if result.returncode != 0:
+            temp_path.rename(video_path)
+            return False
+        temp_path.unlink(missing_ok=True)
+        return True
+    except Exception:
+        if temp_path.exists() and not video_path.exists():
+            temp_path.rename(video_path)
+        return False
+
+
+def _indicador_gravando(container, elapsed_secs: int):
+    """Renderiza o indicador visual de gravação com cronômetro."""
+    mins, secs = divmod(elapsed_secs, 60)
+    container.markdown(f"""
+<style>
+@keyframes _rec_pulse {{
+  0%, 100% {{ opacity: 1; box-shadow: 0 0 0 0 rgba(229,62,62,0.5); }}
+  50% {{ opacity: 0.6; box-shadow: 0 0 0 6px rgba(229,62,62,0); }}
+}}
+</style>
+<div style="display:inline-flex;align-items:center;gap:10px;
+            padding:10px 18px;background:#fff5f5;border-radius:10px;
+            border:1px solid #feb2b2;margin-bottom:6px">
+  <span style="width:12px;height:12px;background:#e53e3e;border-radius:50%;
+               display:inline-block;
+               animation:_rec_pulse 1.4s ease-in-out infinite"></span>
+  <strong style="color:#c53030;letter-spacing:2px;font-size:14px">REC</strong>
+  <span style="font-family:monospace;font-size:15px;color:#718096;min-width:48px">
+    {mins:02d}:{secs:02d}
+  </span>
+</div>
+""", unsafe_allow_html=True)
+
 
 # TAB GRAVA REUNIÃO =====================
-
-def adiciona_chunck_audio(frames_de_audio, audio_chunck):
-    for frame in frames_de_audio:
-        sound = pydub.AudioSegment(
-            data=frame.to_ndarray().tobytes(),
-            sample_width=frame.format.bytes,
-            frame_rate=frame.sample_rate,
-            channels=len(frame.layout.channels),
-        )
-        audio_chunck += sound
-    return audio_chunck
-
 def tab_grava_reuniao():
-    st.info("Dica: Ao iniciar, selecione 'Janela' ou 'Tela Cheia' no navegador para capturar a tela.")
-    capturar_tela = st.checkbox('Gravar Tela (Vídeo)?', value=False)
-    
-    webrtx_ctx = webrtc_streamer(
-        key='recebe_audio',
-        mode=WebRtcMode.SENDONLY,
-        audio_receiver_size=1024,
-        media_stream_constraints={'video': capturar_tela, 'audio': True},
+
+    # ── Configurações ──────────────────────────────────────────────
+    titulo_reuniao = st.text_input(
+        'Título da reunião',
+        placeholder='Ex: Reunião de planejamento Q2',
+        help='Defina o título antes de iniciar a gravação'
     )
 
+    col_c1, col_c2 = st.columns(2)
+    with col_c1:
+        capturar_tela = st.checkbox(
+            '📺 Gravar Tela', value=False,
+            help="Captura uma janela ou a tela inteira do seu computador"
+        )
+    with col_c2:
+        capturar_webcam = st.checkbox(
+            '📸 Gravar Webcam', value=False,
+            help="Captura a sua imagem via câmera"
+        )
+
+    res_w, res_h = 1280, 720
+    if capturar_webcam and not capturar_tela:
+        opcao_res = st.selectbox(
+            'Resolução da Webcam',
+            ['720p — recomendado (menor carga de CPU)', '1080p — alta definição'],
+            help='A A4Tech PK-925H suporta 1080p, mas o encoding em tempo real via CPU é mais pesado. '
+                 'Use 720p para gravações longas ou máquinas menos potentes.'
+        )
+        if '1080p' in opcao_res:
+            res_w, res_h = 1920, 1080
+
+    if capturar_tela:
+        st.info("💡 A tela será capturada automaticamente ao iniciar a gravação (monitor principal).")
+
+    if capturar_webcam and not capturar_tela:
+        video_constraint = {
+            'width':  {'ideal': res_w, 'max': res_w},
+            'height': {'ideal': res_h, 'max': res_h},
+            'frameRate': {'ideal': 30, 'max': 30},
+        }
+    else:
+        # Tela: MSS captura diretamente, WebRTC só entrega áudio
+        video_constraint = False
+
+    # ── Botão de gravação centralizado ────────────────────────────
+    st.markdown("""
+<div style="text-align:center;margin:32px 0 4px">
+  <span style="display:inline-block;width:48px;height:1px;
+               background:linear-gradient(to right,transparent,#cbd5e0);
+               vertical-align:middle;margin-right:12px"></span>
+  <span style="font-size:10px;letter-spacing:4px;text-transform:uppercase;
+               color:#a0aec0;vertical-align:middle">gravador</span>
+  <span style="display:inline-block;width:48px;height:1px;
+               background:linear-gradient(to left,transparent,#cbd5e0);
+               vertical-align:middle;margin-left:12px"></span>
+</div>
+""", unsafe_allow_html=True)
+
+    _, col_btn, _ = st.columns([1, 1, 1])
+    with col_btn:
+        webrtx_ctx = webrtc_streamer(
+            key='recebe_audio',
+            mode=WebRtcMode.SENDONLY,
+            audio_receiver_size=1024,
+            video_receiver_size=1024,
+            media_stream_constraints={
+                'video': video_constraint,
+                'audio': True
+            },
+        )
+
+    # Injeta CSS no iframe do webrtc_streamer para estilizar o botão
+    st.markdown(_RECORDER_BTN_JS, unsafe_allow_html=True)
+
+    # ── Loop de gravação ───────────────────────────────────────────
     if not webrtx_ctx.state.playing:
         return
 
     container_video = None
     vstream = None
     astream = None
-    
+    v_start_time = None
+    a_start_time = None
+    v_last_pts = -1
+    screen_recorder = None
+
     pasta_reuniao = PASTA_ARQUIVOS / datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
     pasta_reuniao.mkdir(parents=True, exist_ok=True)
-    
-    if capturar_tela:
-        video_path = str(pasta_reuniao / 'reuniao.mp4')
+
+    if titulo_reuniao.strip():
+        salva_arquivo(pasta_reuniao / 'titulo.txt', titulo_reuniao.strip())
+
+    if capturar_tela or capturar_webcam:
+        # as_posix() converte barras invertidas para '/' — necessário para PyAV/FFmpeg no Windows
+        video_path = (pasta_reuniao / 'reuniao.mp4').as_posix()
         container_video = av.open(video_path, mode='w')
-        # Streams serão configurados ao receber o primeiro frame
-    
-    status_container = st.empty()
-    status_container.markdown('🎙️ Gravando...')
-    
+
+    if capturar_tela:
+        screen_recorder = ScreenRecorder(fps=15)
+        screen_recorder.start()
+
+    indicador_container = st.empty()
     transcricao_container = st.empty()
 
+    inicio_gravacao = time.time()
+    ultimo_segundo = -1
     ultima_trancricao = time.time()
-    audio_completo = pydub.AudioSegment.empty()
     audio_chunck = pydub.AudioSegment.empty()
+    audio_parts: list[Path] = []
     transcricao = ''
 
     try:
         while webrtx_ctx.state.playing:
+            # Atualiza o cronômetro uma vez por segundo
+            elapsed = int(time.time() - inicio_gravacao)
+            if elapsed != ultimo_segundo:
+                ultimo_segundo = elapsed
+                _indicador_gravando(indicador_container, elapsed)
+
             # PROCESSAMENTO DE ÁUDIO
             if webrtx_ctx.audio_receiver:
                 try:
@@ -174,139 +288,184 @@ def tab_grava_reuniao():
                 except queue.Empty:
                     time.sleep(0.1)
                     continue
-                
-                audio_completo = adiciona_chunck_audio(frames_de_audio, audio_completo)
+
                 audio_chunck = adiciona_chunck_audio(frames_de_audio, audio_chunck)
-                
-                # Gravação de Áudio para o MP4 (se vídeo ativo)
-                if container_video and frames_de_audio:
-                    if astream is None:
-                        astream = container_video.add_stream('aac')
-                    for frame in frames_de_audio:
-                        for packet in astream.encode(frame):
-                            container_video.mux(packet)
-                
-                if len(audio_chunck) > 0:
-                    audio_completo.export(pasta_reuniao / 'audio.mp3')
-                    agora = time.time()
-                    if agora - ultima_trancricao > 5:
-                        ultima_trancricao = agora
-                        audio_chunck.export(pasta_reuniao / 'audio_temp.mp3')
-                        try:
-                            transcricao_chunck = transcreve_audio(pasta_reuniao / 'audio_temp.mp3')
-                            transcricao += f" {transcricao_chunck}"
-                            
-                            # Adiciona nota do modelo no final da transcrição
-                            nota_modelo = "\n\n---\n*Transcrição realizada pelo modelo: Faster-Whisper (Base)*"
-                            salva_arquivo(pasta_reuniao / 'transcricao.txt', transcricao + nota_modelo)
-                            
-                            transcricao_container.markdown(transcricao)
-                        except Exception as e:
-                            st.error(f"Erro na transcrição: {e}")
-                        audio_chunck = pydub.AudioSegment.empty()
-            
-            # PROCESSAMENTO DE VÍDEO
-            if capturar_tela and webrtx_ctx.video_receiver:
+
+                astream, a_start_time = processa_audio_container(
+                    container_video, frames_de_audio, astream, a_start_time
+                )
+
+                agora = time.time()
+                if len(audio_chunck) > 0 and agora - ultima_trancricao > 5:
+                    ultima_trancricao = agora
+
+                    part_path = pasta_reuniao / f'audio_part_{len(audio_parts):04d}.mp3'
+                    audio_chunck.export(part_path)
+                    audio_parts.append(part_path)
+                    audio_chunck.export(pasta_reuniao / 'audio_temp.mp3')
+
+                    try:
+                        transcricao_chunck = transcreve_audio(pasta_reuniao / 'audio_temp.mp3')
+                        transcricao += f" {transcricao_chunck}"
+
+                        modelo_whisper = st.session_state.get('modelo_whisper', 'base')
+                        nota_modelo = f"\n\n---\n*Transcrição: Faster-Whisper ({modelo_whisper})*"
+                        salva_arquivo(pasta_reuniao / 'transcricao.txt', transcricao + nota_modelo)
+
+                        transcricao_container.markdown(transcricao)
+                    except Exception as e:
+                        st.error(f"Erro na transcrição: {e}")
+
+                    audio_chunck = pydub.AudioSegment.empty()
+
+            # PROCESSAMENTO DE VÍDEO — webcam via WebRTC
+            if capturar_webcam and not capturar_tela and webrtx_ctx.video_receiver:
                 try:
                     frames_de_video = webrtx_ctx.video_receiver.get_frames(timeout=1)
-                    for frame in frames_de_video:
-                        if vstream is None:
-                            vstream = container_video.add_stream('libx264', rate=30)
-                            vstream.width = frame.width
-                            vstream.height = frame.height
-                            vstream.pix_fmt = 'yuv420p'
-                        
-                        for packet in vstream.encode(frame):
-                            container_video.mux(packet)
+                    vstream, v_start_time, v_last_pts = processa_video_container(
+                        container_video, frames_de_video, vstream, v_start_time, v_last_pts
+                    )
                 except queue.Empty:
                     pass
-            
-            if not webrtx_ctx.state.playing:
-                break
+                except Exception as e:
+                    st.warning(f"Erro ao processar vídeo: {e}")
+
+            # PROCESSAMENTO DE TELA — frames do MSS
+            if capturar_tela and screen_recorder is not None:
+                mss_frames = []
+                while True:
+                    try:
+                        bgr, capture_time = screen_recorder.frame_queue.get_nowait()
+                        mss_frames.append(bgr_para_av_frame(bgr, capture_time))
+                    except queue.Empty:
+                        break
+                if mss_frames:
+                    try:
+                        vstream, v_start_time, v_last_pts = processa_video_container(
+                            container_video, mss_frames, vstream, v_start_time, v_last_pts
+                        )
+                    except Exception as e:
+                        st.warning(f"Erro ao processar tela: {e}")
+
     finally:
-        # Fechar o container de vídeo adequadamente
-        if container_video:
-            if vstream:
-                for packet in vstream.encode():
-                    container_video.mux(packet)
-            if astream:
-                for packet in astream.encode():
-                    container_video.mux(packet)
-            container_video.close()
-            status_container.success(f"Gravação salva em: {pasta_reuniao}")
+        if len(audio_chunck) > 0:
+            part_path = pasta_reuniao / f'audio_part_{len(audio_parts):04d}.mp3'
+            audio_chunck.export(part_path)
+            audio_parts.append(part_path)
+
+        if audio_parts:
+            _merge_audio_parts(audio_parts, pasta_reuniao / 'audio.mp3')
+
+        # Para o MSS e drena os frames restantes antes de fechar o container
+        if screen_recorder is not None:
+            screen_recorder.stop()
+            if container_video is not None:
+                mss_frames = []
+                while True:
+                    try:
+                        bgr, capture_time = screen_recorder.frame_queue.get_nowait()
+                        mss_frames.append(bgr_para_av_frame(bgr, capture_time))
+                    except queue.Empty:
+                        break
+                if mss_frames:
+                    try:
+                        vstream, v_start_time, v_last_pts = processa_video_container(
+                            container_video, mss_frames, vstream, v_start_time, v_last_pts
+                        )
+                    except Exception:
+                        pass
+
+        flush_container(container_video, vstream, astream)
+
+        if container_video is not None:
+            otimizado = _optimize_video_for_web(pasta_reuniao / 'reuniao.mp4')
+            if not otimizado:
+                st.warning('Não foi possível otimizar o vídeo para reprodução web.')
+
+        indicador_container.empty()
+        st.session_state['ir_para_historico'] = True
 
 
 # TAB SELEÇÃO REUNIÃO =====================
 def tab_selecao_reuniao():
     reunioes_dict = listar_reunioes()
     if len(reunioes_dict) > 0:
-        reuniao_selecionada = st.selectbox('Selecione uma reunião',
-                                        list(reunioes_dict.values()))
+        reuniao_data = st.selectbox(
+            'Selecione uma reunião',
+            options=list(reunioes_dict.keys()),
+            format_func=lambda k: reunioes_dict[k]
+        )
         st.divider()
-        reuniao_data = [k for k, v in reunioes_dict.items() if v == reuniao_selecionada][0]
         pasta_reuniao = PASTA_ARQUIVOS / reuniao_data
-        
-        if not (pasta_reuniao / 'titulo.txt').exists():
-            st.warning('Adicione um título para esta reunião')
-            titulo_reuniao = st.text_input('Título da reunião')
-            if st.button('Salvar Título'):
-                salvar_titulo(pasta_reuniao, titulo_reuniao)
-                st.rerun()
-        else:
-            titulo = le_arquivo(pasta_reuniao / 'titulo.txt')
-            transcricao = le_arquivo(pasta_reuniao / 'transcricao.txt')
-            resumo = le_arquivo(pasta_reuniao / 'resumo.txt')
-            
+
+        titulo = le_arquivo(pasta_reuniao / 'titulo.txt')
+        transcricao = le_arquivo(pasta_reuniao / 'transcricao.txt')
+        resumo = le_arquivo(pasta_reuniao / 'resumo.txt')
+
+        if titulo:
             st.markdown(f'### {titulo}')
-            
-            # Exibir Vídeo se existir
-            video_file = pasta_reuniao / 'reuniao.mp4'
-            if video_file.exists():
-                st.video(str(video_file))
+        else:
+            st.warning('Esta reunião não tem título.')
+            novo_titulo = st.text_input('Adicionar título', key='titulo_historico')
+            if st.button('Salvar Título') and novo_titulo.strip():
+                salva_arquivo(pasta_reuniao / 'titulo.txt', novo_titulo.strip())
+                st.rerun()
+
+        video_file = pasta_reuniao / 'reuniao.mp4'
+        if video_file.exists():
+            st.video(str(video_file))
+        else:
+            audio_file = pasta_reuniao / 'audio.mp3'
+            if audio_file.exists():
+                st.audio(str(audio_file))
+
+        if resumo == '':
+            if transcricao == '':
+                st.warning('Nenhuma transcrição disponível para gerar resumo.')
             else:
-                # Exibir Áudio se não houver vídeo
-                audio_file = pasta_reuniao / 'audio.mp3'
-                if audio_file.exists():
-                    st.audio(str(audio_file))
-            
-            if resumo == '':
                 if st.button('✨ Gerar Resumo Inteligente'):
                     with st.spinner('Analisando transcrição...'):
                         gerar_resumo(pasta_reuniao)
                         st.rerun()
-            else:
-                st.info(resumo)
-            
-            with st.expander("📝 Ver transcrição completa"):
-                st.write(transcricao)
-        
-def salvar_titulo(pasta_reuniao, titulo):
-    salva_arquivo(pasta_reuniao / 'titulo.txt', titulo)
+        else:
+            st.info(resumo)
 
-def gerar_resumo(pasta_reuniao):
-    transcricao = le_arquivo(pasta_reuniao / 'transcricao.txt')
-    if transcricao == '':
-        st.error('Não há transcrição para gerar resumo.')
-        return
-    provedor = st.session_state.get('provedor', 'OpenAI')
-    resumo, modelo_utilizado = chat_openai(mensagem=PROMPT.format(transcricao))
-    resumo += f'\n\n---\n*Resumo gerado pelo modelo: {modelo_utilizado} ({provedor})*'
-    salva_arquivo(pasta_reuniao / 'resumo.txt', resumo)
+        with st.expander("📝 Ver transcrição completa"):
+            st.write(transcricao)
 
 
 # MAIN =====================
 def main():
     st.set_page_config(page_title="Projeto-Gravando", page_icon="🎙️")
     st.header('Projeto-Gravando 🎙️', divider='rainbow')
-    
-    # Seleção de Provedor na Barra Lateral
+
+    # Após gravação concluída, injeta JS para navegar automaticamente para o Histórico.
+    # O intervalo tenta a cada 150ms até encontrar as tabs no DOM (máx. 3 segundos).
+    if st.session_state.pop('ir_para_historico', False):
+        st.markdown("""
+<script>
+(function () {
+    var attempts = 0;
+    var iv = setInterval(function () {
+        var tabs = window.parent.document.querySelectorAll('button[data-baseweb="tab"]');
+        if (tabs.length >= 2) {
+            tabs[1].click();
+            clearInterval(iv);
+        } else if (++attempts > 20) {
+            clearInterval(iv);
+        }
+    }, 150);
+})();
+</script>
+""", unsafe_allow_html=True)
+
     with st.sidebar:
         st.title('🤖 Configurações de IA')
         st.session_state['provedor'] = st.selectbox(
             'Provedor de Resumo',
             ['Ollama (Local)', 'OpenAI']
         )
-        
+
         if st.session_state['provedor'] == 'Ollama (Local)':
             modelos_ollama = listar_modelos_ollama()
             if modelos_ollama:
@@ -315,49 +474,38 @@ def main():
                     modelos_ollama,
                     index=0
                 )
-                st.success(f'Ollama Ativado')
+                st.success('Ollama Ativado')
             else:
                 st.error('Ollama não detectado. Certifique-se de que ele está rodando.')
-                st.info('Caso tenha instalado agora, reinicie o app.')
         else:
             st.warning('Usando API da OpenAI (Nuvem)')
-        
+
+        st.divider()
+        st.subheader('🎙️ Transcrição')
+        st.session_state['modelo_whisper'] = st.selectbox(
+            'Modelo Whisper',
+            MODELOS_WHISPER,
+            index=MODELOS_WHISPER.index('base'),
+            help='tiny < base < small < medium — modelos maiores são mais precisos mas mais lentos'
+        )
+
         st.divider()
         st.subheader('🔍 Status do Sistema')
-        
-        # Status do Whisper
         col1, col2 = st.columns([1, 4])
         with col1:
             st.write('🎙️')
         with col2:
-            st.caption('Whisper: **Pronto (Local)**')
-        
-        # Status do Ollama
-        col3, col4 = st.columns([1, 4])
-        with col3:
-            if st.session_state.get('provedor') == 'Ollama (Local)':
-                if listar_modelos_ollama():
-                    st.write('🟢')
-                else:
-                    st.write('🔴')
-            else:
-                st.write('⚪')
-        with col4:
-            if st.session_state.get('provedor') == 'Ollama (Local)':
-                st.caption('Ollama: **Ativo**' if listar_modelos_ollama() else 'Ollama: **Desconectado**')
-            else:
-                st.caption('Resumo: **OpenAI (Nuvem)**')
-
-        st.caption('Transcrição: Faster-Whisper (Local)')
-        st.caption('Modelo Transcrição: Base')
+            modelo_atual = st.session_state.get('modelo_whisper', 'base')
+            st.caption(f'Whisper: **{modelo_atual} (Local)**')
 
     tab_gravar, tab_selecao = st.tabs(['🔴 Gravar Reunião', '📂 Histórico'])
-    
+
     with tab_gravar:
         tab_grava_reuniao()
-        
+
     with tab_selecao:
         tab_selecao_reuniao()
+
 
 if __name__ == '__main__':
     main()

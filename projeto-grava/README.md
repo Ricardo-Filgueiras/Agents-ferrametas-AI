@@ -1,77 +1,72 @@
-# 🎥 Projeto Grava: MeetGPT Local
+# Projeto Grava — Gravador de Reuniões Local
 
-O **Projeto Grava** é uma solução de "MeetGPT" 100% local e focada em privacidade. Ele permite capturar áudio e vídeo de reuniões, transcrever o conteúdo de forma automatizada e gerar resumos inteligentes utilizando modelos de IA rodando localmente.
+Solução local para gravação de reuniões presenciais em salas corporativas. Captura a tela (slides apresentados), grava o áudio ambiente, transcreve automaticamente e gera uma ata com resumo e itens de ação — tudo offline, sem nenhum dado saindo da máquina.
 
-## ✨ Funcionalidades
+## Caso de uso
 
-- **Gravação Local:** Captura de tela e janelas diretamente para formato MP4 via `PyAV`.
-- **Transcrição Offline:** Utiliza o `faster-whisper` para converter áudio em texto sem enviar dados para a nuvem.
-- **Resumos com IA:** Integração com **Ollama** e **LangChain** para análise de conteúdo e geração de atas de reunião.
-- **Transparência de Modelos:** Identificação automática do modelo utilizado tanto na transcrição quanto no resumo gerado.
-- **Privacidade Total:** Processamento local garante que nenhuma informação sensível saia da sua máquina.
+Sala de reunião com 5 pessoas, slides sendo apresentados e debate entre os participantes. O app roda em um notebook conectado ao projetor ou TV da sala, capturando a tela e o microfone. Ao fim da reunião, a ata já está pronta.
 
-## 🛠️ Tecnologias Utilizadas
+## Funcionalidades
 
-- **Interface:** [Streamlit](https://streamlit.io/)
-- **Processamento de Mídia:** [PyAV (FFmpeg)](https://pyav.org/)
-- **Transcrição:** [Faster-Whisper](https://github.com/SYSTRAN/faster-whisper)
-- **Modelos de Linguagem (LLM):** [Ollama](https://ollama.com/) & [LangChain](https://www.langchain.com/)
-- **Gerenciamento de Pacotes:** [UV](https://github.com/astral-sh/uv)
+- **Gravação de tela** — captura o monitor principal em MP4 via MSS + PyAV (H.264)
+- **Gravação de áudio** — captura o microfone via WebRTC em chunks de 5 segundos
+- **Transcrição offline** — Faster-Whisper (int8 CPU), modelos tiny / base / small / medium
+- **Resumo com IA local** — Ollama + LangChain, modelo detectado automaticamente
+- **Suporte a OpenAI** — alternativa de nuvem configurável na sidebar
+- **Histórico de reuniões** — navegação, reprodução de vídeo/áudio e geração de resumo retroativo
+- **Privacidade total** — nenhum dado sai da máquina quando usando Ollama
 
-## 📂 Estrutura do Projeto
+## Pré-requisitos
 
-```text
-projeto-grava/
-├── data/               # Arquivos gerados (vídeos, áudios, transcrições)
-│   └── YYYY_MM_DD_HH_MM_SS/
-│       ├── audio.mp3       # Áudio completo da reunião
-│       ├── reuniao.mp4     # Vídeo da reunião (opcional)
-│       ├── transcricao.txt # Texto transcrito com nota do modelo
-│       └── resumo.txt      # Resumo inteligente com nota do modelo
-├── src/
-│   ├── app/            # Código fonte da aplicação principal
-│   │   └── main.py     # Ponto de entrada Streamlit
-│   └── aprendizado/    # Documentação, estudos e protótipos
-├── main.py             # Script de entrada (wrapper)
-├── pyproject.toml      # Configurações do projeto e dependências
-└── requirements.txt    # Lista de dependências legada
+- Python 3.12+
+- [Ollama](https://ollama.com/) rodando localmente com pelo menos um modelo instalado:
+  ```bash
+  ollama pull llama3.2
+  ```
+- FFmpeg disponível no PATH (ou `ffmpeg.exe` na pasta `src/app/`)
+
+## Instalação
+
+```bash
+git clone https://github.com/Ricardo-Filgueiras/Agents-ferrametas-AI.git
+cd Agents-ferrametas-AI/projeto-grava
+uv sync
 ```
 
-## 🚀 Como Começar
+Ou via pip:
+```bash
+pip install -r requirements.txt
+```
 
-### Pré-requisitos
+Copie `.env.example` para `.env` e preencha `OPENAI_API_KEY` apenas se for usar o provedor OpenAI.
 
-1.  **Python 3.12+**
-2.  **Ollama** instalado e rodando (para os resumos).
-    *   Para baixar um modelo novo: `ollama pull llama3.2` ou `ollama pull gemma2`.
-
-### Instalação
-
-1.  Clone o repositório:
-    ```bash
-    git clone https://github.com/Ricardo-Filgueiras/Agents-ferrametas-AI.git
-    cd Agents-ferrametas-AI/projeto-grava
-    ```
-
-2.  Instale as dependências (recomendado usar `uv`):
-    ```bash
-    uv sync
-    ```
-    *Ou via pip:*
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-3.  Configure o arquivo `.env` (use o `.env.example` como base).
-
-### Execução
-
-Para iniciar a interface do projeto:
+## Execução
 
 ```bash
 streamlit run src/app/main.py
 ```
 
-## 📝 Licença
+Acesse `http://localhost:8501`. Configure o modelo Whisper e o provedor de resumo na sidebar antes de gravar.
 
-Este projeto está sob a licença MIT. Veja o arquivo [LICENSE](LICENSE) para mais detalhes.
+## Saída por reunião
+
+```
+data/YYYY_MM_DD_HH_MM_SS/
+├── titulo.txt        # Título informado antes da gravação
+├── audio.mp3         # Áudio completo da reunião
+├── reuniao.mp4       # Vídeo da tela (se captura de tela ativada)
+├── transcricao.txt   # Transcrição completa com modelo utilizado
+└── resumo.txt        # Resumo + acordos da reunião com modelo utilizado
+```
+
+## Roadmap
+
+Itens estudados e planejados estão em [`.agents/itens-importentes.md`](.agents/itens-importentes.md), incluindo:
+
+- Diarização de falantes (quem disse o quê)
+- Extração de itens de ação
+- Suporte a reuniões longas (chunking de transcrição)
+- Marcadores manuais durante a gravação
+- Exportação de ata em PDF
+- Conformidade com LGPD (registro de consentimento)
+- Busca entre reuniões via RAG

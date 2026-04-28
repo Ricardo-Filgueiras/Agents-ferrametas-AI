@@ -24,6 +24,7 @@ from video import (
     processa_video_container, flush_container, bgr_para_av_frame
 )
 from printela import ScreenRecorder
+from system_audio import listar_dispositivos_loopback, SystemAudioCapture
 
 _ = load_dotenv(find_dotenv())
 
@@ -105,6 +106,33 @@ def _merge_audio_parts(parts: list, output_path: Path):
     combined.export(output_path, format='mp3')
     for part in parts:
         part.unlink(missing_ok=True)
+
+
+def _muxar_audio_no_video(video_path: Path, audio_path: Path) -> bool:
+    """Combina video (sem áudio) + audio.mp3 em um único MP4 com faststart."""
+    ffmpeg_local = Path(__file__).parent / ('ffmpeg.exe' if sys.platform == 'win32' else 'ffmpeg')
+    ffmpeg_cmd = str(ffmpeg_local) if ffmpeg_local.exists() else 'ffmpeg'
+    temp_path = video_path.with_suffix('.tmp.mp4')
+    try:
+        video_path.rename(temp_path)
+        result = subprocess.run(
+            [ffmpeg_cmd, '-y',
+             '-i', temp_path.as_posix(),
+             '-i', audio_path.as_posix(),
+             '-c:v', 'copy', '-c:a', 'aac',
+             '-movflags', '+faststart',
+             video_path.as_posix()],
+            capture_output=True
+        )
+        if result.returncode != 0:
+            temp_path.rename(video_path)
+            return False
+        temp_path.unlink(missing_ok=True)
+        return True
+    except Exception:
+        if temp_path.exists() and not video_path.exists():
+            temp_path.rename(video_path)
+        return False
 
 
 def _optimize_video_for_web(video_path: Path) -> bool:
@@ -220,16 +248,21 @@ def tab_grava_reuniao():
 </div>
 """, unsafe_allow_html=True)
 
+    fonte_audio = st.session_state.get('fonte_audio', 'Microfone')
+
+    # Chave diferente por modo para forçar reset do componente ao trocar fonte
+    webrtc_key = 'recebe_audio_mic' if fonte_audio == 'Microfone' else 'recebe_audio_sistema'
+
     _, col_btn, _ = st.columns([1, 1, 1])
     with col_btn:
         webrtx_ctx = webrtc_streamer(
-            key='recebe_audio',
+            key=webrtc_key,
             mode=WebRtcMode.SENDONLY,
             audio_receiver_size=1024,
             video_receiver_size=1024,
             media_stream_constraints={
                 'video': video_constraint,
-                'audio': True
+                'audio': True,
             },
         )
 
@@ -247,6 +280,7 @@ def tab_grava_reuniao():
     a_start_time = None
     v_last_pts = -1
     screen_recorder = None
+    capture_sistema = None
 
     pasta_reuniao = PASTA_ARQUIVOS / datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
     pasta_reuniao.mkdir(parents=True, exist_ok=True)
@@ -262,6 +296,11 @@ def tab_grava_reuniao():
     if capturar_tela:
         screen_recorder = ScreenRecorder(fps=15)
         screen_recorder.start()
+
+    device_sistema = st.session_state.get('device_sistema')
+    if fonte_audio == 'Áudio do Sistema' and device_sistema is not None:
+        capture_sistema = SystemAudioCapture(device_sistema)
+        capture_sistema.start()
 
     indicador_container = st.empty()
     transcricao_container = st.empty()
@@ -281,8 +320,8 @@ def tab_grava_reuniao():
                 ultimo_segundo = elapsed
                 _indicador_gravando(indicador_container, elapsed)
 
-            # PROCESSAMENTO DE ÁUDIO
-            if webrtx_ctx.audio_receiver:
+            # PROCESSAMENTO DE ÁUDIO — microfone via WebRTC
+            if fonte_audio == 'Microfone' and webrtx_ctx.audio_receiver:
                 try:
                     frames_de_audio = webrtx_ctx.audio_receiver.get_frames(timeout=1)
                 except queue.Empty:
@@ -318,6 +357,29 @@ def tab_grava_reuniao():
 
                     audio_chunck = pydub.AudioSegment.empty()
 
+            # PROCESSAMENTO DE ÁUDIO — sistema via WASAPI Loopback (chunks de 10s)
+            elif fonte_audio == 'Áudio do Sistema' and capture_sistema:
+                chunk = capture_sistema.get_chunk()
+                if chunk:
+                    part_path = pasta_reuniao / f'audio_part_{len(audio_parts):04d}.mp3'
+                    chunk.export(part_path)
+                    audio_parts.append(part_path)
+                    chunk.export(pasta_reuniao / 'audio_temp.mp3')
+
+                    try:
+                        transcricao_chunck = transcreve_audio(pasta_reuniao / 'audio_temp.mp3')
+                        transcricao += f" {transcricao_chunck}"
+
+                        modelo_whisper = st.session_state.get('modelo_whisper', 'base')
+                        nota_modelo = f"\n\n---\n*Transcrição: Faster-Whisper ({modelo_whisper})*"
+                        salva_arquivo(pasta_reuniao / 'transcricao.txt', transcricao + nota_modelo)
+
+                        transcricao_container.markdown(transcricao)
+                    except Exception as e:
+                        st.error(f"Erro na transcrição: {e}")
+                else:
+                    time.sleep(0.1)
+
             # PROCESSAMENTO DE VÍDEO — webcam via WebRTC
             if capturar_webcam and not capturar_tela and webrtx_ctx.video_receiver:
                 try:
@@ -348,10 +410,22 @@ def tab_grava_reuniao():
                         st.warning(f"Erro ao processar tela: {e}")
 
     finally:
-        if len(audio_chunck) > 0:
+        # Flush de áudio do microfone (chunks parciais não transcritos)
+        if fonte_audio == 'Microfone' and len(audio_chunck) > 0:
             part_path = pasta_reuniao / f'audio_part_{len(audio_parts):04d}.mp3'
             audio_chunck.export(part_path)
             audio_parts.append(part_path)
+
+        # Para captura do sistema e drena chunks restantes
+        if capture_sistema:
+            capture_sistema.stop()
+            while True:
+                chunk = capture_sistema.get_chunk()
+                if chunk is None:
+                    break
+                part_path = pasta_reuniao / f'audio_part_{len(audio_parts):04d}.mp3'
+                chunk.export(part_path)
+                audio_parts.append(part_path)
 
         if audio_parts:
             _merge_audio_parts(audio_parts, pasta_reuniao / 'audio.mp3')
@@ -378,9 +452,16 @@ def tab_grava_reuniao():
         flush_container(container_video, vstream, astream)
 
         if container_video is not None:
-            otimizado = _optimize_video_for_web(pasta_reuniao / 'reuniao.mp4')
-            if not otimizado:
-                st.warning('Não foi possível otimizar o vídeo para reprodução web.')
+            video_path = pasta_reuniao / 'reuniao.mp4'
+            audio_path = pasta_reuniao / 'audio.mp3'
+            if fonte_audio == 'Áudio do Sistema' and audio_path.exists():
+                ok = _muxar_audio_no_video(video_path, audio_path)
+                if not ok:
+                    st.warning('Não foi possível combinar vídeo e áudio do sistema.')
+            else:
+                ok = _optimize_video_for_web(video_path)
+                if not ok:
+                    st.warning('Não foi possível otimizar o vídeo para reprodução web.')
 
         indicador_container.empty()
         st.session_state['ir_para_historico'] = True
@@ -488,6 +569,27 @@ def main():
             index=MODELOS_WHISPER.index('base'),
             help='tiny < base < small < medium — modelos maiores são mais precisos mas mais lentos'
         )
+
+        st.divider()
+        st.subheader('🔊 Fonte de Áudio')
+        st.session_state['fonte_audio'] = st.radio(
+            'Fonte de áudio',
+            ['Microfone', 'Áudio do Sistema'],
+            horizontal=True,
+        )
+        if st.session_state['fonte_audio'] == 'Áudio do Sistema':
+            dispositivos = listar_dispositivos_loopback()
+            if dispositivos:
+                nomes = [d['nome'] for d in dispositivos]
+                idx = st.selectbox(
+                    'Dispositivo de saída',
+                    range(len(nomes)),
+                    format_func=lambda i: nomes[i],
+                )
+                st.session_state['device_sistema'] = dispositivos[idx]
+            else:
+                st.error('Nenhum dispositivo WASAPI Loopback encontrado.')
+                st.session_state['device_sistema'] = None
 
         st.divider()
         st.subheader('🔍 Status do Sistema')

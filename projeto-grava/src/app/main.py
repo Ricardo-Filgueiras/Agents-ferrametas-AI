@@ -500,16 +500,18 @@ def tab_selecao_reuniao():
             if audio_file.exists():
                 st.audio(str(audio_file))
 
-        if resumo == '':
-            if transcricao == '':
-                st.warning('Nenhuma transcrição disponível para gerar resumo.')
-            else:
-                if st.button('✨ Gerar Resumo Inteligente'):
+        if transcricao == '':
+            st.warning('Nenhuma transcrição disponível para gerar resumo.')
+        else:
+            if resumo:
+                st.info(resumo)
+            col_gerar, col_refazer = st.columns([2, 1])
+            with col_gerar if not resumo else col_refazer:
+                label = '✨ Gerar Resumo Inteligente' if not resumo else '🔄 Refazer Resumo'
+                if st.button(label):
                     with st.spinner('Analisando transcrição...'):
                         gerar_resumo(pasta_reuniao)
                         st.rerun()
-        else:
-            st.info(resumo)
 
         with st.expander("📝 Ver transcrição completa"):
             st.write(transcricao)

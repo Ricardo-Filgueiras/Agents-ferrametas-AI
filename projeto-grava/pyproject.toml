@@ -29,4 +29,5 @@ dependencies = [
     "sounddevice>=0.5.1",
     "streamlit-webrtc>=0.64.5",
     "pyaudiowpatch>=0.2.12.8",
+    "faiss-cpu>=1.7.0",
 ]

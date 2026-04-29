@@ -10,28 +10,28 @@ import streamlit as st
 from streamlit_webrtc import WebRtcMode, webrtc_streamer
 from dotenv import load_dotenv, find_dotenv
 
+# ── Imports da nova estrutura ─────────────────────────────────────────────────
 from utils import (
     PASTA_ARQUIVOS, salva_arquivo, le_arquivo,
-    listar_modelos_ollama, listar_reunioes
+    listar_modelos_ollama, listar_reunioes,
 )
-from ia_models import (
-    transcreve_audio, chat_openai, gerar_resumo
-)
-from audio import (
-    adiciona_chunck_audio, processa_audio_container
-)
-from video import (
-    processa_video_container, flush_container, bgr_para_av_frame
-)
-from printela import ScreenRecorder
-from system_audio import listar_dispositivos_loopback, SystemAudioCapture
+from ia_models import transcreve_audio, gerar_resumo
+from capture.audio import adiciona_chunck_audio, processa_audio_container
+from capture.video import processa_video_container, flush_container, bgr_para_av_frame
+from capture.printela import ScreenRecorder
+from capture.system_audio import listar_dispositivos_loopback, SystemAudioCapture
+from capture.mixed_audio import MixedAudioCapture
 
 _ = load_dotenv(find_dotenv())
 
 MODELOS_WHISPER = ['tiny', 'base', 'small', 'medium']
 
-# CSS injetado no iframe do webrtc_streamer via JavaScript (mesmo origin → permitido).
-# Transforma o botão padrão num botão circular de gravador.
+# Fonte de áudio — constantes legíveis
+FONTE_MIC = 'Microfone'
+FONTE_SISTEMA = 'Áudio do Sistema'
+FONTE_MISTO = '🎙️+🔊 Microfone + Sistema'
+
+# CSS injetado no iframe do webrtc_streamer via JavaScript.
 _RECORDER_BTN_JS = """
 <script>
 (function () {
@@ -69,8 +69,6 @@ _RECORDER_BTN_JS = """
                 if (!doc || !doc.body) return;
                 var btn = doc.querySelector("button");
                 if (!btn || doc.querySelector("#_rec_style")) return;
-
-                // Injeta folha de estilos no iframe
                 var s = doc.createElement("style");
                 s.id = "_rec_style";
                 s.textContent =
@@ -85,12 +83,8 @@ _RECORDER_BTN_JS = """
         });
     }
 
-    // Tenta imediatamente e em intervalos crescentes para pegar o iframe
-    // após o componente montar (o React pode demorar alguns frames)
     apply();
     [150, 400, 900, 2000, 4000].forEach(function (d) { setTimeout(apply, d); });
-
-    // MutationObserver para capturar re-renders do Streamlit
     var mo = new MutationObserver(apply);
     mo.observe(document.body, { childList: true, subtree: true });
     setTimeout(function () { mo.disconnect(); }, 30000);
@@ -98,6 +92,8 @@ _RECORDER_BTN_JS = """
 </script>
 """
 
+
+# ── Helpers de pós-processamento ─────────────────────────────────────────────
 
 def _merge_audio_parts(parts: list, output_path: Path):
     combined = pydub.AudioSegment.empty()
@@ -109,7 +105,7 @@ def _merge_audio_parts(parts: list, output_path: Path):
 
 
 def _muxar_audio_no_video(video_path: Path, audio_path: Path) -> bool:
-    """Combina video (sem áudio) + audio.mp3 em um único MP4 com faststart."""
+    """Combina video (sem áudio) + audio.mp3 num único MP4 com faststart."""
     ffmpeg_local = Path(__file__).parent / ('ffmpeg.exe' if sys.platform == 'win32' else 'ffmpeg')
     ffmpeg_cmd = str(ffmpeg_local) if ffmpeg_local.exists() else 'ffmpeg'
     temp_path = video_path.with_suffix('.tmp.mp4')
@@ -122,7 +118,7 @@ def _muxar_audio_no_video(video_path: Path, audio_path: Path) -> bool:
              '-c:v', 'copy', '-c:a', 'aac',
              '-movflags', '+faststart',
              video_path.as_posix()],
-            capture_output=True
+            capture_output=True,
         )
         if result.returncode != 0:
             temp_path.rename(video_path)
@@ -136,22 +132,16 @@ def _muxar_audio_no_video(video_path: Path, audio_path: Path) -> bool:
 
 
 def _optimize_video_for_web(video_path: Path) -> bool:
-    """
-    Remux MP4 movendo o moov atom para o início do arquivo (faststart).
-    Sem re-encoding — apenas reorganiza os atoms. Necessário para reprodução
-    progressiva no navegador, pois o PyAV grava o moov ao final por padrão.
-    Retorna True se bem-sucedido.
-    """
+    """Remux MP4 movendo o moov atom para o início (faststart)."""
     ffmpeg_local = Path(__file__).parent / ('ffmpeg.exe' if sys.platform == 'win32' else 'ffmpeg')
     ffmpeg_cmd = str(ffmpeg_local) if ffmpeg_local.exists() else 'ffmpeg'
-
     temp_path = video_path.with_suffix('.tmp.mp4')
     try:
         video_path.rename(temp_path)
         result = subprocess.run(
             [ffmpeg_cmd, '-y', '-i', temp_path.as_posix(),
              '-movflags', '+faststart', '-c', 'copy', video_path.as_posix()],
-            capture_output=True
+            capture_output=True,
         )
         if result.returncode != 0:
             temp_path.rename(video_path)
@@ -188,26 +178,25 @@ def _indicador_gravando(container, elapsed_secs: int):
 """, unsafe_allow_html=True)
 
 
-# TAB GRAVA REUNIÃO =====================
-def tab_grava_reuniao():
+# ── TAB GRAVA REUNIÃO ─────────────────────────────────────────────────────────
 
-    # ── Configurações ──────────────────────────────────────────────
+def tab_grava_reuniao():
     titulo_reuniao = st.text_input(
         'Título da reunião',
         placeholder='Ex: Reunião de planejamento Q2',
-        help='Defina o título antes de iniciar a gravação'
+        help='Defina o título antes de iniciar a gravação',
     )
 
     col_c1, col_c2 = st.columns(2)
     with col_c1:
         capturar_tela = st.checkbox(
             '📺 Gravar Tela', value=False,
-            help="Captura uma janela ou a tela inteira do seu computador"
+            help='Captura uma janela ou a tela inteira do seu computador',
         )
     with col_c2:
         capturar_webcam = st.checkbox(
             '📸 Gravar Webcam', value=False,
-            help="Captura a sua imagem via câmera"
+            help='Captura a sua imagem via câmera',
         )
 
     res_w, res_h = 1280, 720
@@ -215,26 +204,22 @@ def tab_grava_reuniao():
         opcao_res = st.selectbox(
             'Resolução da Webcam',
             ['720p — recomendado (menor carga de CPU)', '1080p — alta definição'],
-            help='A A4Tech PK-925H suporta 1080p, mas o encoding em tempo real via CPU é mais pesado. '
-                 'Use 720p para gravações longas ou máquinas menos potentes.'
         )
         if '1080p' in opcao_res:
             res_w, res_h = 1920, 1080
 
     if capturar_tela:
-        st.info("💡 A tela será capturada automaticamente ao iniciar a gravação (monitor principal).")
+        st.info('💡 A tela será capturada automaticamente ao iniciar a gravação.')
 
-    if capturar_webcam and not capturar_tela:
-        video_constraint = {
-            'width':  {'ideal': res_w, 'max': res_w},
-            'height': {'ideal': res_h, 'max': res_h},
-            'frameRate': {'ideal': 30, 'max': 30},
-        }
-    else:
-        # Tela: MSS captura diretamente, WebRTC só entrega áudio
-        video_constraint = False
+    video_constraint = (
+        {'width': {'ideal': res_w, 'max': res_w},
+         'height': {'ideal': res_h, 'max': res_h},
+         'frameRate': {'ideal': 30, 'max': 30}}
+        if capturar_webcam and not capturar_tela
+        else False
+    )
 
-    # ── Botão de gravação centralizado ────────────────────────────
+    # ── Botão de gravação ────────────────────────────────────────────────────
     st.markdown("""
 <div style="text-align:center;margin:32px 0 4px">
   <span style="display:inline-block;width:48px;height:1px;
@@ -248,10 +233,8 @@ def tab_grava_reuniao():
 </div>
 """, unsafe_allow_html=True)
 
-    fonte_audio = st.session_state.get('fonte_audio', 'Microfone')
-
-    # Chave diferente por modo para forçar reset do componente ao trocar fonte
-    webrtc_key = 'recebe_audio_mic' if fonte_audio == 'Microfone' else 'recebe_audio_sistema'
+    fonte_audio = st.session_state.get('fonte_audio', FONTE_MIC)
+    webrtc_key = f'recebe_audio_{fonte_audio.replace(" ", "_").replace("+", "")}'
 
     _, col_btn, _ = st.columns([1, 1, 1])
     with col_btn:
@@ -266,13 +249,12 @@ def tab_grava_reuniao():
             },
         )
 
-    # Injeta CSS no iframe do webrtc_streamer para estilizar o botão
     st.markdown(_RECORDER_BTN_JS, unsafe_allow_html=True)
 
-    # ── Loop de gravação ───────────────────────────────────────────
     if not webrtx_ctx.state.playing:
         return
 
+    # ── Setup de captura ─────────────────────────────────────────────────────
     container_video = None
     vstream = None
     astream = None
@@ -281,6 +263,7 @@ def tab_grava_reuniao():
     v_last_pts = -1
     screen_recorder = None
     capture_sistema = None
+    mixer = None
 
     pasta_reuniao = PASTA_ARQUIVOS / datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
     pasta_reuniao.mkdir(parents=True, exist_ok=True)
@@ -289,7 +272,6 @@ def tab_grava_reuniao():
         salva_arquivo(pasta_reuniao / 'titulo.txt', titulo_reuniao.strip())
 
     if capturar_tela or capturar_webcam:
-        # as_posix() converte barras invertidas para '/' — necessário para PyAV/FFmpeg no Windows
         video_path = (pasta_reuniao / 'reuniao.mp4').as_posix()
         container_video = av.open(video_path, mode='w')
 
@@ -298,30 +280,53 @@ def tab_grava_reuniao():
         screen_recorder.start()
 
     device_sistema = st.session_state.get('device_sistema')
-    if fonte_audio == 'Áudio do Sistema' and device_sistema is not None:
+
+    # ── Inicializa captura de áudio conforme fonte selecionada ───────────────
+    if fonte_audio in (FONTE_SISTEMA, FONTE_MISTO) and device_sistema:
         capture_sistema = SystemAudioCapture(device_sistema)
         capture_sistema.start()
+
+    if fonte_audio == FONTE_MISTO:
+        mixer = MixedAudioCapture(chunk_duration_s=5)
 
     indicador_container = st.empty()
     transcricao_container = st.empty()
 
     inicio_gravacao = time.time()
     ultimo_segundo = -1
-    ultima_trancricao = time.time()
+    ultima_transcricao = time.time()
     audio_chunck = pydub.AudioSegment.empty()
     audio_parts: list[Path] = []
     transcricao = ''
 
+    def _transcrever_e_salvar(chunk: pydub.AudioSegment) -> str:
+        """Exporta chunk, transcreve e salva — reutilizado pelos 3 modos."""
+        nonlocal transcricao, ultima_transcricao
+        part_path = pasta_reuniao / f'audio_part_{len(audio_parts):04d}.mp3'
+        chunk.export(part_path, format='mp3')
+        audio_parts.append(part_path)
+        chunk.export(pasta_reuniao / 'audio_temp.mp3', format='mp3')
+        try:
+            trecho = transcreve_audio(pasta_reuniao / 'audio_temp.mp3')
+            transcricao += f' {trecho}'
+            modelo_whisper = st.session_state.get('modelo_whisper', 'base')
+            nota = f'\n\n---\n*Transcrição: Faster-Whisper ({modelo_whisper})*'
+            salva_arquivo(pasta_reuniao / 'transcricao.txt', transcricao + nota)
+            transcricao_container.markdown(transcricao)
+        except Exception as e:
+            st.error(f'Erro na transcrição: {e}')
+        ultima_transcricao = time.time()
+        return transcricao
+
     try:
         while webrtx_ctx.state.playing:
-            # Atualiza o cronômetro uma vez por segundo
             elapsed = int(time.time() - inicio_gravacao)
             if elapsed != ultimo_segundo:
                 ultimo_segundo = elapsed
                 _indicador_gravando(indicador_container, elapsed)
 
-            # PROCESSAMENTO DE ÁUDIO — microfone via WebRTC
-            if fonte_audio == 'Microfone' and webrtx_ctx.audio_receiver:
+            # ── MODO: Microfone (WebRTC) ──────────────────────────────────
+            if fonte_audio == FONTE_MIC and webrtx_ctx.audio_receiver:
                 try:
                     frames_de_audio = webrtx_ctx.audio_receiver.get_frames(timeout=1)
                 except queue.Empty:
@@ -329,71 +334,59 @@ def tab_grava_reuniao():
                     continue
 
                 audio_chunck = adiciona_chunck_audio(frames_de_audio, audio_chunck)
-
                 astream, a_start_time = processa_audio_container(
-                    container_video, frames_de_audio, astream, a_start_time
+                    container_video, frames_de_audio, astream, a_start_time,
                 )
 
-                agora = time.time()
-                if len(audio_chunck) > 0 and agora - ultima_trancricao > 5:
-                    ultima_trancricao = agora
-
-                    part_path = pasta_reuniao / f'audio_part_{len(audio_parts):04d}.mp3'
-                    audio_chunck.export(part_path)
-                    audio_parts.append(part_path)
-                    audio_chunck.export(pasta_reuniao / 'audio_temp.mp3')
-
-                    try:
-                        transcricao_chunck = transcreve_audio(pasta_reuniao / 'audio_temp.mp3')
-                        transcricao += f" {transcricao_chunck}"
-
-                        modelo_whisper = st.session_state.get('modelo_whisper', 'base')
-                        nota_modelo = f"\n\n---\n*Transcrição: Faster-Whisper ({modelo_whisper})*"
-                        salva_arquivo(pasta_reuniao / 'transcricao.txt', transcricao + nota_modelo)
-
-                        transcricao_container.markdown(transcricao)
-                    except Exception as e:
-                        st.error(f"Erro na transcrição: {e}")
-
+                if len(audio_chunck) > 0 and time.time() - ultima_transcricao > 5:
+                    _transcrever_e_salvar(audio_chunck)
                     audio_chunck = pydub.AudioSegment.empty()
 
-            # PROCESSAMENTO DE ÁUDIO — sistema via WASAPI Loopback (chunks de 10s)
-            elif fonte_audio == 'Áudio do Sistema' and capture_sistema:
+            # ── MODO: Áudio do Sistema (WASAPI) ───────────────────────────
+            elif fonte_audio == FONTE_SISTEMA and capture_sistema:
                 chunk = capture_sistema.get_chunk()
                 if chunk:
-                    part_path = pasta_reuniao / f'audio_part_{len(audio_parts):04d}.mp3'
-                    chunk.export(part_path)
-                    audio_parts.append(part_path)
-                    chunk.export(pasta_reuniao / 'audio_temp.mp3')
-
-                    try:
-                        transcricao_chunck = transcreve_audio(pasta_reuniao / 'audio_temp.mp3')
-                        transcricao += f" {transcricao_chunck}"
-
-                        modelo_whisper = st.session_state.get('modelo_whisper', 'base')
-                        nota_modelo = f"\n\n---\n*Transcrição: Faster-Whisper ({modelo_whisper})*"
-                        salva_arquivo(pasta_reuniao / 'transcricao.txt', transcricao + nota_modelo)
-
-                        transcricao_container.markdown(transcricao)
-                    except Exception as e:
-                        st.error(f"Erro na transcrição: {e}")
+                    _transcrever_e_salvar(chunk)
                 else:
                     time.sleep(0.1)
 
-            # PROCESSAMENTO DE VÍDEO — webcam via WebRTC
+            # ── MODO: Microfone + Sistema (MixedAudioCapture) ─────────────
+            elif fonte_audio == FONTE_MISTO and mixer:
+                # Alimenta o mixer com frames do microfone
+                if webrtx_ctx.audio_receiver:
+                    try:
+                        frames_de_audio = webrtx_ctx.audio_receiver.get_frames(timeout=1)
+                        mixer.add_mic_frames(frames_de_audio)
+                    except queue.Empty:
+                        pass
+
+                # Alimenta o mixer com chunks do sistema
+                if capture_sistema:
+                    sys_chunk = capture_sistema.get_chunk()
+                    if sys_chunk:
+                        mixer.add_system_chunk(sys_chunk)
+
+                # Consome chunks mesclados prontos
+                mixed_chunk = mixer.get_chunk()
+                if mixed_chunk:
+                    _transcrever_e_salvar(mixed_chunk)
+                else:
+                    time.sleep(0.05)
+
+            # ── VÍDEO: Webcam (WebRTC) ────────────────────────────────────
             if capturar_webcam and not capturar_tela and webrtx_ctx.video_receiver:
                 try:
                     frames_de_video = webrtx_ctx.video_receiver.get_frames(timeout=1)
                     vstream, v_start_time, v_last_pts = processa_video_container(
-                        container_video, frames_de_video, vstream, v_start_time, v_last_pts
+                        container_video, frames_de_video, vstream, v_start_time, v_last_pts,
                     )
                 except queue.Empty:
                     pass
                 except Exception as e:
-                    st.warning(f"Erro ao processar vídeo: {e}")
+                    st.warning(f'Erro ao processar vídeo: {e}')
 
-            # PROCESSAMENTO DE TELA — frames do MSS
-            if capturar_tela and screen_recorder is not None:
+            # ── VÍDEO: Tela (MSS) ─────────────────────────────────────────
+            if capturar_tela and screen_recorder:
                 mss_frames = []
                 while True:
                     try:
@@ -404,36 +397,45 @@ def tab_grava_reuniao():
                 if mss_frames:
                     try:
                         vstream, v_start_time, v_last_pts = processa_video_container(
-                            container_video, mss_frames, vstream, v_start_time, v_last_pts
+                            container_video, mss_frames, vstream, v_start_time, v_last_pts,
                         )
                     except Exception as e:
-                        st.warning(f"Erro ao processar tela: {e}")
+                        st.warning(f'Erro ao processar tela: {e}')
 
     finally:
-        # Flush de áudio do microfone (chunks parciais não transcritos)
-        if fonte_audio == 'Microfone' and len(audio_chunck) > 0:
+        # ── Flush do microfone (modo MIC) ─────────────────────────────────
+        if fonte_audio == FONTE_MIC and len(audio_chunck) > 0:
             part_path = pasta_reuniao / f'audio_part_{len(audio_parts):04d}.mp3'
-            audio_chunck.export(part_path)
+            audio_chunck.export(part_path, format='mp3')
             audio_parts.append(part_path)
 
-        # Para captura do sistema e drena chunks restantes
+        # ── Flush do mixer (modo MISTO) ───────────────────────────────────
+        if mixer:
+            remaining = mixer.flush_remaining()
+            if remaining:
+                part_path = pasta_reuniao / f'audio_part_{len(audio_parts):04d}.mp3'
+                remaining.export(part_path, format='mp3')
+                audio_parts.append(part_path)
+
+        # ── Para SystemAudioCapture e drena chunks restantes ──────────────
         if capture_sistema:
             capture_sistema.stop()
             while True:
                 chunk = capture_sistema.get_chunk()
                 if chunk is None:
                     break
-                part_path = pasta_reuniao / f'audio_part_{len(audio_parts):04d}.mp3'
-                chunk.export(part_path)
-                audio_parts.append(part_path)
+                if fonte_audio == FONTE_SISTEMA:
+                    part_path = pasta_reuniao / f'audio_part_{len(audio_parts):04d}.mp3'
+                    chunk.export(part_path, format='mp3')
+                    audio_parts.append(part_path)
 
         if audio_parts:
             _merge_audio_parts(audio_parts, pasta_reuniao / 'audio.mp3')
 
-        # Para o MSS e drena os frames restantes antes de fechar o container
-        if screen_recorder is not None:
+        # ── Para MSS e drena frames restantes ────────────────────────────
+        if screen_recorder:
             screen_recorder.stop()
-            if container_video is not None:
+            if container_video:
                 mss_frames = []
                 while True:
                     try:
@@ -444,20 +446,21 @@ def tab_grava_reuniao():
                 if mss_frames:
                     try:
                         vstream, v_start_time, v_last_pts = processa_video_container(
-                            container_video, mss_frames, vstream, v_start_time, v_last_pts
+                            container_video, mss_frames, vstream, v_start_time, v_last_pts,
                         )
                     except Exception:
                         pass
 
         flush_container(container_video, vstream, astream)
 
-        if container_video is not None:
+        if container_video:
             video_path = pasta_reuniao / 'reuniao.mp4'
             audio_path = pasta_reuniao / 'audio.mp3'
-            if fonte_audio == 'Áudio do Sistema' and audio_path.exists():
+            # Modos que gravam áudio separado do container: SISTEMA e MISTO
+            if fonte_audio in (FONTE_SISTEMA, FONTE_MISTO) and audio_path.exists():
                 ok = _muxar_audio_no_video(video_path, audio_path)
                 if not ok:
-                    st.warning('Não foi possível combinar vídeo e áudio do sistema.')
+                    st.warning('Não foi possível combinar vídeo e áudio.')
             else:
                 ok = _optimize_video_for_web(video_path)
                 if not ok:
@@ -467,63 +470,66 @@ def tab_grava_reuniao():
         st.session_state['ir_para_historico'] = True
 
 
-# TAB SELEÇÃO REUNIÃO =====================
+# ── TAB SELEÇÃO REUNIÃO ───────────────────────────────────────────────────────
+
 def tab_selecao_reuniao():
     reunioes_dict = listar_reunioes()
-    if len(reunioes_dict) > 0:
-        reuniao_data = st.selectbox(
-            'Selecione uma reunião',
-            options=list(reunioes_dict.keys()),
-            format_func=lambda k: reunioes_dict[k]
-        )
-        st.divider()
-        pasta_reuniao = PASTA_ARQUIVOS / reuniao_data
+    if not reunioes_dict:
+        st.info('Nenhuma reunião gravada ainda.')
+        return
 
-        titulo = le_arquivo(pasta_reuniao / 'titulo.txt')
-        transcricao = le_arquivo(pasta_reuniao / 'transcricao.txt')
-        resumo = le_arquivo(pasta_reuniao / 'resumo.txt')
+    reuniao_data = st.selectbox(
+        'Selecione uma reunião',
+        options=list(reunioes_dict.keys()),
+        format_func=lambda k: reunioes_dict[k],
+    )
+    st.divider()
+    pasta_reuniao = PASTA_ARQUIVOS / reuniao_data
 
-        if titulo:
-            st.markdown(f'### {titulo}')
-        else:
-            st.warning('Esta reunião não tem título.')
-            novo_titulo = st.text_input('Adicionar título', key='titulo_historico')
-            if st.button('Salvar Título') and novo_titulo.strip():
-                salva_arquivo(pasta_reuniao / 'titulo.txt', novo_titulo.strip())
-                st.rerun()
+    titulo = le_arquivo(pasta_reuniao / 'titulo.txt')
+    transcricao = le_arquivo(pasta_reuniao / 'transcricao.txt')
+    resumo = le_arquivo(pasta_reuniao / 'resumo.txt')
 
-        video_file = pasta_reuniao / 'reuniao.mp4'
-        if video_file.exists():
-            st.video(str(video_file))
-        else:
-            audio_file = pasta_reuniao / 'audio.mp3'
-            if audio_file.exists():
-                st.audio(str(audio_file))
+    if titulo:
+        st.markdown(f'### {titulo}')
+    else:
+        st.warning('Esta reunião não tem título.')
+        novo_titulo = st.text_input('Adicionar título', key='titulo_historico')
+        if st.button('Salvar Título') and novo_titulo.strip():
+            salva_arquivo(pasta_reuniao / 'titulo.txt', novo_titulo.strip())
+            st.rerun()
 
-        if transcricao == '':
-            st.warning('Nenhuma transcrição disponível para gerar resumo.')
-        else:
-            if resumo:
-                st.info(resumo)
-            col_gerar, col_refazer = st.columns([2, 1])
-            with col_gerar if not resumo else col_refazer:
-                label = '✨ Gerar Resumo Inteligente' if not resumo else '🔄 Refazer Resumo'
-                if st.button(label):
-                    with st.spinner('Analisando transcrição...'):
-                        gerar_resumo(pasta_reuniao)
-                        st.rerun()
+    video_file = pasta_reuniao / 'reuniao.mp4'
+    if video_file.exists():
+        st.video(str(video_file))
+    else:
+        audio_file = pasta_reuniao / 'audio.mp3'
+        if audio_file.exists():
+            st.audio(str(audio_file))
 
-        with st.expander("📝 Ver transcrição completa"):
-            st.write(transcricao)
+    if not transcricao:
+        st.warning('Nenhuma transcrição disponível para gerar resumo.')
+    else:
+        if resumo:
+            st.info(resumo)
+        col_gerar, col_refazer = st.columns([2, 1])
+        with col_gerar if not resumo else col_refazer:
+            label = '✨ Gerar Resumo Inteligente' if not resumo else '🔄 Refazer Resumo'
+            if st.button(label):
+                with st.spinner('Analisando transcrição...'):
+                    gerar_resumo(pasta_reuniao)
+                    st.rerun()
+
+    with st.expander('📝 Ver transcrição completa'):
+        st.write(transcricao)
 
 
-# MAIN =====================
+# ── MAIN ─────────────────────────────────────────────────────────────────────
+
 def main():
-    st.set_page_config(page_title="Projeto-Gravando", page_icon="🎙️")
+    st.set_page_config(page_title='Projeto-Gravando', page_icon='🎙️')
     st.header('Projeto-Gravando 🎙️', divider='rainbow')
 
-    # Após gravação concluída, injeta JS para navegar automaticamente para o Histórico.
-    # O intervalo tenta a cada 150ms até encontrar as tabs no DOM (máx. 3 segundos).
     if st.session_state.pop('ir_para_historico', False):
         st.markdown("""
 <script>
@@ -531,22 +537,19 @@ def main():
     var attempts = 0;
     var iv = setInterval(function () {
         var tabs = window.parent.document.querySelectorAll('button[data-baseweb="tab"]');
-        if (tabs.length >= 2) {
-            tabs[1].click();
-            clearInterval(iv);
-        } else if (++attempts > 20) {
-            clearInterval(iv);
-        }
+        if (tabs.length >= 2) { tabs[1].click(); clearInterval(iv); }
+        else if (++attempts > 20) { clearInterval(iv); }
     }, 150);
 })();
 </script>
 """, unsafe_allow_html=True)
 
+    # ── Sidebar de configurações ─────────────────────────────────────────────
     with st.sidebar:
         st.title('🤖 Configurações de IA')
         st.session_state['provedor'] = st.selectbox(
             'Provedor de Resumo',
-            ['Ollama (Local)', 'OpenAI']
+            ['Ollama (Local)', 'OpenAI'],
         )
 
         if st.session_state['provedor'] == 'Ollama (Local)':
@@ -555,7 +558,7 @@ def main():
                 st.session_state['modelo_ollama'] = st.selectbox(
                     'Selecione o Modelo Local',
                     modelos_ollama,
-                    index=0
+                    index=0,
                 )
                 st.success('Ollama Ativado')
             else:
@@ -569,22 +572,27 @@ def main():
             'Modelo Whisper',
             MODELOS_WHISPER,
             index=MODELOS_WHISPER.index('base'),
-            help='tiny < base < small < medium — modelos maiores são mais precisos mas mais lentos'
+            help='tiny < base < small < medium — modelos maiores são mais precisos mas mais lentos',
         )
 
         st.divider()
         st.subheader('🔊 Fonte de Áudio')
         st.session_state['fonte_audio'] = st.radio(
             'Fonte de áudio',
-            ['Microfone', 'Áudio do Sistema'],
-            horizontal=True,
+            [FONTE_MIC, FONTE_SISTEMA, FONTE_MISTO],
+            help=(
+                f'**{FONTE_MIC}**: capta sua voz via navegador.\n\n'
+                f'**{FONTE_SISTEMA}**: capta tudo que sai pela caixa de som (WASAPI).\n\n'
+                f'**{FONTE_MISTO}**: capta microfone E sistema simultaneamente e mescla antes de transcrever.'
+            ),
         )
-        if st.session_state['fonte_audio'] == 'Áudio do Sistema':
+
+        if st.session_state['fonte_audio'] in (FONTE_SISTEMA, FONTE_MISTO):
             dispositivos = listar_dispositivos_loopback()
             if dispositivos:
                 nomes = [d['nome'] for d in dispositivos]
                 idx = st.selectbox(
-                    'Dispositivo de saída',
+                    'Dispositivo de saída (WASAPI)',
                     range(len(nomes)),
                     format_func=lambda i: nomes[i],
                 )
@@ -595,12 +603,8 @@ def main():
 
         st.divider()
         st.subheader('🔍 Status do Sistema')
-        col1, col2 = st.columns([1, 4])
-        with col1:
-            st.write('🎙️')
-        with col2:
-            modelo_atual = st.session_state.get('modelo_whisper', 'base')
-            st.caption(f'Whisper: **{modelo_atual} (Local)**')
+        modelo_atual = st.session_state.get('modelo_whisper', 'base')
+        st.caption(f'🎙️ Whisper: **{modelo_atual} (Local)**')
 
     tab_gravar, tab_selecao = st.tabs(['🔴 Gravar Reunião', '📂 Histórico'])
 

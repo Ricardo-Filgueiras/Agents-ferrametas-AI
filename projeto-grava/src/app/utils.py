@@ -1,61 +1,65 @@
+"""
+utils — helpers de I/O, configuração de caminhos e serviços externos.
+
+Sem lógica de IA aqui. PROMPT removido — prompts agora em llm/prompts.py.
+"""
 from pathlib import Path
+
 import requests
 from dotenv import load_dotenv, find_dotenv
-import os 
 
-PROMPT_PATH = Path(r"src\app\systemprompt.md")
-
-def carrega_prompt(caminho):
-    if os.path.exists(caminho):
-        with open(caminho, "r", encoding="utf-8") as f:
-            return f.read()
-    else:
-        return "Prompt não encontrado."
-        
-# Carrega variáveis de ambiente
 load_dotenv(find_dotenv())
 
-# Configuração de Caminhos
+# ── Caminhos ─────────────────────────────────────────────────────────────────
+
 PASTA_ARQUIVOS = Path(__file__).parent.parent.parent / 'data'
 PASTA_ARQUIVOS.mkdir(exist_ok=True)
 
-PROMPT = carrega_prompt(PROMPT_PATH)
 
-def salva_arquivo(caminho_arquivo, conteudo):
+# ── I/O de arquivos ──────────────────────────────────────────────────────────
+
+def salva_arquivo(caminho_arquivo, conteudo: str) -> None:
     with open(caminho_arquivo, 'w', encoding='utf-8') as f:
         f.write(conteudo)
 
-def le_arquivo(caminho_arquivo):
-    if caminho_arquivo.exists():
-        with open(caminho_arquivo, 'r', encoding='utf-8') as f:
-            return f.read()
-    else:
-        return ''
 
-def listar_modelos_ollama():
+def le_arquivo(caminho_arquivo) -> str:
+    path = Path(caminho_arquivo)
+    if path.exists():
+        with open(path, 'r', encoding='utf-8') as f:
+            return f.read()
+    return ''
+
+
+# ── Serviços externos ────────────────────────────────────────────────────────
+
+def listar_modelos_ollama() -> list[str]:
+    """Consulta o Ollama local e retorna os modelos disponíveis."""
     try:
         response = requests.get('http://localhost:11434/api/tags', timeout=2)
         if response.status_code == 200:
             return [m['name'] for m in response.json().get('models', [])]
     except Exception:
-        return []
+        pass
     return []
 
-def listar_reunioes():
-    lista_reunioes = PASTA_ARQUIVOS.glob('*')
-    lista_reunioes = [p for p in lista_reunioes if p.is_dir()]
-    lista_reunioes.sort(reverse=True)
-    reunioes_dict = {}
-    for pasta_reuniao in lista_reunioes:
-        data_reuniao = pasta_reuniao.stem
+
+def listar_reunioes() -> dict[str, str]:
+    """Retorna {folder_stem: label} das reuniões gravadas, mais recente primeiro."""
+    pastas = sorted(
+        [p for p in PASTA_ARQUIVOS.glob('*') if p.is_dir()],
+        reverse=True,
+    )
+    reunioes_dict: dict[str, str] = {}
+    for pasta in pastas:
+        stem = pasta.stem
         try:
-            ano, mes, dia, hora, min, seg = data_reuniao.split('_')
-            label = f'{ano}/{mes}/{dia} {hora}:{min}:{seg}'
+            ano, mes, dia, hora, minuto, seg = stem.split('_')
+            label = f'{ano}/{mes}/{dia} {hora}:{minuto}:{seg}'
         except ValueError:
-            label = data_reuniao
-        
-        titulo = le_arquivo(pasta_reuniao / 'titulo.txt')
-        if titulo != '':
+            label = stem
+        titulo = le_arquivo(pasta / 'titulo.txt')
+        if titulo:
             label += f' - {titulo}'
-        reunioes_dict[data_reuniao] = label
+        reunioes_dict[stem] = label
     return reunioes_dict

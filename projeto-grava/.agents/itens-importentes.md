@@ -98,3 +98,32 @@ com log registrado em arquivo junto aos dados da reunião.
 Com uso diário, os arquivos acumulam rapidamente (áudio + vídeo + transcrições).
 Necessário: política de retenção, compressão automática de gravações antigas,
 ou indicador de espaço em disco na interface.
+
+---
+
+## 16. Leitura Simultânea (Modo Teleprompter)
+Exibir a transcrição em tempo real em formato visual ampliado — texto grande, negrito,
+com timestamp de cada frase — semelhante a um teleprompter ou legenda ao vivo.
+Útil para acompanhamento durante a reunião sem precisar ler texto pequeno.
+
+Comportamento esperado:
+```
+┌─────────────────────────────────┐
+│  Leitura Simultânea (BETA)      │
+│                                 │
+│  3:12                           │
+│  bandeiras de cartão, Lula,     │
+│  inclusive, deve tentar         │
+│                                 │
+│  3:14                           │
+│  blindar qualquer possibilidade │
+│  de um novo tarifácio.          │
+└─────────────────────────────────┘
+```
+
+- Texto atual (último chunk Whisper) exibido em destaque no centro da tela
+- Timestamp relativo à gravação (ex: `3:12`) acima de cada bloco de frase
+- Texto em fonte grande e legível (estilo subtítulo de filme)
+- Modo ativável via checkbox na sidebar ou botão dedicado durante a gravação
+- Útil para speakers acompanharem o que foi dito em tempo real sem sair da reunião
+- Aplicável em: apresentações, transmissões ao vivo, webinars, podcasts

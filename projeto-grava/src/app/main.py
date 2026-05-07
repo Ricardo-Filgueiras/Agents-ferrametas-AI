@@ -15,7 +15,7 @@ from utils import (
     PASTA_ARQUIVOS, salva_arquivo, le_arquivo,
     listar_modelos_ollama, listar_reunioes,
 )
-from ia_models import transcreve_audio, gerar_resumo
+from ia_models import transcreve_audio, gerar_resumo, retranscrever_reuniao
 from capture.audio import adiciona_chunck_audio, processa_audio_container
 from capture.video import processa_video_container, flush_container, bgr_para_av_frame
 from capture.printela import ScreenRecorder
@@ -506,6 +506,29 @@ def tab_selecao_reuniao():
         audio_file = pasta_reuniao / 'audio.mp3'
         if audio_file.exists():
             st.audio(str(audio_file))
+
+    # ── Refazer Transcrição ──────────────────────────────────────────────────
+    audio_file = pasta_reuniao / 'audio.mp3'
+    if audio_file.exists():
+        with st.expander('🔄 Refazer Transcrição'):
+            TEMPOS_ESTIMADOS = {
+                'tiny':   '~10 min para 20 min de áudio (qualidade ruim)',
+                'base':   '~16 min para 20 min de áudio (qualidade aceitável)',
+                'small':  '~30-40 min para 20 min de áudio (boa qualidade) ⭐',
+                'medium': '~80+ min para 20 min de áudio (muito boa qualidade, lento)',
+            }
+            modelo_escolhido = st.selectbox(
+                'Modelo Whisper',
+                options=['tiny', 'base', 'small', 'medium'],
+                index=2,  # small como padrão
+                key='modelo_whisper_retranscrever',
+            )
+            st.caption(f'⏱️ {TEMPOS_ESTIMADOS[modelo_escolhido]}')
+
+            if st.button('🔄 Refazer Transcrição', type='primary'):
+                with st.spinner(f'Transcrevendo com modelo {modelo_escolhido}...'):
+                    retranscrever_reuniao(pasta_reuniao, modelo_escolhido)
+                st.rerun()
 
     if not transcricao:
         st.warning('Nenhuma transcrição disponível para gerar resumo.')

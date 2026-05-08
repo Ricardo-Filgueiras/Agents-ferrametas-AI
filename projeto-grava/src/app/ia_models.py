@@ -5,12 +5,11 @@ Refatorado para usar:
   - LLMFactory: sem clientes globais, com cache por (provider, model)
   - ChatPromptTemplate tipado (llm/prompts.py)
   - MeetingCallbackHandler: latência e tokens logados automaticamente
-  - Map-reduce chunking com paralelismo para transcrições longas (> 4000 chars)
+  - Map-reduce chunking sequencial para transcrições longas (> 4000 chars)
 """
 import streamlit as st
 from faster_whisper import WhisperModel
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from utils import le_arquivo, salva_arquivo
 from llm.factory import LLMFactory
@@ -54,7 +53,7 @@ def retranscrever_reuniao(pasta_reuniao, modelo_whisper: str) -> None:
 
 # ── Resumo (LLM via LCEL) ────────────────────────────────────────────────────
 
-def _split_em_chunks(texto: str, tamanho: int = 2750, overlap: int = 275) -> list[str]:
+def _split_em_chunks(texto: str, tamanho: int = 4000, overlap: int = 400) -> list[str]:
     """Divide texto em chunks usando RecursiveCharacterTextSplitter."""
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=tamanho,
@@ -63,24 +62,13 @@ def _split_em_chunks(texto: str, tamanho: int = 2750, overlap: int = 275) -> lis
     return splitter.split_text(texto)
 
 
-def _resumir_chunk(args: tuple) -> tuple[int, str]:
-    """Resumir um chunk individual. Executado em thread paralela."""
-    idx, chunk, chain = args
-    resposta = chain.invoke(
-        {"chunk": chunk},
-        config={"callbacks": [MeetingCallbackHandler()]},
-    )
-    return idx, resposta.content
-
 def gerar_resumo(pasta_reuniao) -> None:
     """
     Gera resumo da reunião via LLM e salva em resumo.txt.
 
-    Para transcrições longas (> 4000 chars): usa map-reduce chunking.
-    Chunks pequenos são resumidos independentemente (mais rápido em CPU),
-    depois os resumos parciais são sintetizados num resumo final.
-
-    Provider e modelo lidos do session_state do Streamlit.
+    Para transcrições longas (> 4000 chars): usa map-reduce chunking sequencial.
+    Ollama em CPU processa 1 requisição por vez — processar em série é equivalente
+    ao ThreadPoolExecutor, sem o risco de condição de corrida no cliente HTTP.
     """
     transcricao = le_arquivo(pasta_reuniao / 'transcricao.txt')
     if not transcricao:
@@ -94,37 +82,24 @@ def gerar_resumo(pasta_reuniao) -> None:
     try:
         llm = LLMFactory.create(provider=provedor_ui, model=model)
 
-        # Decidir se usa chunking (map-reduce) ou resumo direto
-        usar_chunking = len(transcricao) > 4000
+        usar_chunking = len(transcricao) > 10000
 
         if usar_chunking:
-            # MAP phase: resumir chunks em paralelo
             chunks = _split_em_chunks(transcricao)
-
             progress_bar = st.progress(0)
             status_text = st.empty()
 
-            chain_chunk = CHUNK_SUMMARY_PROMPT_V1 | llm
-
-            # Processar chunks em paralelo com ThreadPoolExecutor
-            status_text.text(f'Processando {len(chunks)} trechos em paralelo...')
-            args = [(i, chunk, chain_chunk) for i, chunk in enumerate(chunks)]
-
-            resultados = {}
-            concluidos = 0
-
-            with ThreadPoolExecutor(max_workers=4) as executor:
-                futures = {executor.submit(_resumir_chunk, arg): arg[0] for arg in args}
-
-                for future in as_completed(futures):
-                    idx, conteudo = future.result()
-                    resultados[idx] = conteudo
-                    concluidos += 1
-                    progress_bar.progress(concluidos / len(chunks))
-                    status_text.text(f'Concluído {concluidos}/{len(chunks)} trechos...')
-
-            # Reordenar resultados pela ordem original
-            resumos_parciais = [resultados[i] for i in range(len(chunks))]
+            # MAP phase: uma nova chain por chunk evita estado compartilhado
+            resumos_parciais = []
+            for i, chunk in enumerate(chunks):
+                status_text.text(f'Processando trecho {i + 1}/{len(chunks)}...')
+                chain_chunk = CHUNK_SUMMARY_PROMPT_V1 | llm
+                resposta = chain_chunk.invoke(
+                    {"chunk": chunk},
+                    config={"callbacks": [MeetingCallbackHandler()]},
+                )
+                resumos_parciais.append(resposta.content)
+                progress_bar.progress((i + 1) / len(chunks))
 
             progress_bar.empty()
             status_text.empty()
@@ -132,7 +107,6 @@ def gerar_resumo(pasta_reuniao) -> None:
             # REDUCE phase: sintetizar resumos parciais
             st.info('Sintetizando resumo final...')
             resumos_juntos = "\n\n".join(resumos_parciais)
-
             chain_final = SUMMARY_PROMPT_V1 | llm
             resposta_final = chain_final.invoke(
                 {"transcricao": resumos_juntos},
@@ -140,7 +114,6 @@ def gerar_resumo(pasta_reuniao) -> None:
             )
             resumo = resposta_final.content
         else:
-            # Caminho direto para transcrições curtas
             chain = SUMMARY_PROMPT_V1 | llm
             resposta = chain.invoke(
                 {"transcricao": transcricao},

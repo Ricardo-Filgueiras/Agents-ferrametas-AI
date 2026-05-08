@@ -12,7 +12,7 @@ from langchain_core.language_models import BaseChatModel
 @lru_cache(maxsize=8)
 def _criar_ollama(model: str, streaming: bool) -> BaseChatModel:
     from langchain_ollama import ChatOllama
-    return ChatOllama(model=model, temperature=0, streaming=streaming)
+    return ChatOllama(model=model, temperature=0, streaming=streaming, timeout=120)
 
 
 @lru_cache(maxsize=8)

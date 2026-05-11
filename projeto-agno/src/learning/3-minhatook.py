@@ -1,8 +1,6 @@
 from agno.agent import Agent
-from agno.models.google import Gemini
+from agno.models.ollama import Ollama
 from agno.tools.tavily import TavilyTools
-
-
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -22,10 +20,10 @@ def minhaferramenta(veiculo: str) -> str:
     return f"Filtro automotivo encontrado para: {veiculo}"
 
 agent = Agent(
-    model=Gemini(id="gemini-2.5-flash"),
-    tools=[TavilyTools(), minhaferramenta , ],
+    model=Ollama(id="llama3.2:3b"),
+    tools=[TavilyTools(), minhaferramenta],
     markdown=True
-    )
+)
 
-
-agent.print_response("Qual o filtro de Combustivel para Uno mile 4p 2010 ?", stream=True)
+if __name__ == "__main__":
+    agent.print_response("Qual o filtro de Combustivel para Uno mile 4p 2010 ?", stream=True)

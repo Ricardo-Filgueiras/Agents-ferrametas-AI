@@ -127,3 +127,29 @@ Comportamento esperado:
 - Modo ativável via checkbox na sidebar ou botão dedicado durante a gravação
 - Útil para speakers acompanharem o que foi dito em tempo real sem sair da reunião
 - Aplicável em: apresentações, transmissões ao vivo, webinars, podcasts
+
+---
+
+## 17. Metodologia CRISP-DM como Padrão de Projeto para Resumos
+Usar as fases do CRISP-DM (Cross Industry Standard Process for Data Mining) como estrutura
+de referência para o LLM organizar o resumo de reuniões técnicas/analíticas.
+
+Mapeamento das fases para a ata de reunião:
+```
+1. Entendimento do Negócio  → Objetivo da reunião, problema a resolver
+2. Entendimento dos Dados   → Fontes, bases, KPIs discutidos
+3. Preparação dos Dados     → ETL, transformações, pipelines mencionados
+4. Modelagem                → Algoritmos, abordagens, hipóteses levantadas
+5. Avaliação                → Métricas, critérios de sucesso, validações
+6. Implantação              → Próximos passos, responsáveis, prazos
+```
+
+Benefícios:
+- Resumo estruturado em vez de texto corrido — fácil de auditar
+- O LLM só preenche as seções relevantes à reunião (omite fases não mencionadas)
+- Padrão reconhecível pela equipe de dados sem curva de aprendizado
+- Complementa o item 3 (Extração de Itens de Ação) com contexto de projeto
+
+Implementação: adicionar uma opção de **"Template de Resumo"** no sidebar —
+`Livre | CRISP-DM | Scrum Sprint | Genérico` — que troca o `ChatPromptTemplate`
+conforme o padrão selecionado, sem alterar o pipeline de transcrição.

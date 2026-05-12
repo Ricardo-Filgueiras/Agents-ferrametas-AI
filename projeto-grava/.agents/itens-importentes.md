@@ -112,7 +112,7 @@ Comportamento esperado:
 │  Leitura Simultânea (BETA)      │
 │                                 │
 │  3:12                           │
-│  bandeiras de cartão, Lula,     │
+│  bandeiras de cartão,     │
 │  inclusive, deve tentar         │
 │                                 │
 │  3:14                           │

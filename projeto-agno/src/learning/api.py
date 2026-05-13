@@ -9,6 +9,7 @@ from agno.vectordb.chroma import ChromaDb
 from agno.knowledge.embedder.ollama import OllamaEmbedder
 
 from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
 import uvicorn
 
 # Configurando o Embedder do Ollama
@@ -27,9 +28,6 @@ knowledge = Knowledge(
     )
 )
 
-# Carregando o conteúdo
-# knowledge.insert(path="mannpedido.pdf", upsert=True)
-
 db = SqliteDb(db_file="tmp/fast.db")
 
 agent = Agent(
@@ -42,13 +40,36 @@ agent = Agent(
     instructions=[
         "RESPONDA SEMPRE EM PORTUGUÊS (BRASIL).",
         "Você é um assistente de IA especializado em pedidos.",
-        "Use a ferramenta 'search_knowledge_base' para buscar informações no PDF.",
-        "IMPORTANTE: Você DEVE passar apenas o texto da busca como uma STRING simples.",
-        "NUNCA passe um dicionário ou JSON como argumento 'query'.",
-    ],
-    markdown=True,
-    debug_mode=True 
+        "Ao buscar informações, use a ferramenta 'search_knowledge_base'.",
+        "ERRO CRÍTICO A EVITAR: Nunca envie um JSON ou Dicionário no campo 'query'.",
+        "FORMA CORRETA: search_knowledge_base(query='texto da busca')",
+        "FORMA ERRADA: search_knowledge_base(query={'type': 'string', ...})",
+        "Se o dado não for encontrado, informe educadamente."
+    ]
 )
 
+
+from pydantic import BaseModel
+
+class ChatRequest(BaseModel):
+    message: str
+
+app = FastAPI(title="Api com agno", description="Api para interagir com o agente Agno")
+
+@app.get("/")
+def read_root():
+    return {"message": "Api com agno"}
+
+@app.post("/chat")
+async def consulta_pdf(request: ChatRequest):
+    def stream_response():
+        # agent.run com stream=True permite enviar a resposta palavra por palavra
+        for response_chunk in agent.run(request.message, stream=True):
+            if response_chunk.content is not None:
+                yield response_chunk.content
+
+    return StreamingResponse(stream_response(), media_type="text/plain")
+
+
 if __name__ == "__main__":
-    agent.print_response("me diga qual o endereço e nome do parceiro emissor do pedido 2644114 ?", stream=True)
+    uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)

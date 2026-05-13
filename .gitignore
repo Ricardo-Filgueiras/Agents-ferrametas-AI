@@ -222,3 +222,8 @@ projeto-grava/src/app/ffmpeg.exe
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+.projeto-octo/exemplos/.cursorignore
+.projeto-docstoteles/exemplos/.cursorignore
+.projeto-agno/.tmp
+.tmp
+tmp

@@ -3,6 +3,7 @@ utils — helpers de I/O, configuração de caminhos e serviços externos.
 
 Sem lógica de IA aqui. PROMPT removido — prompts agora em llm/prompts.py.
 """
+import re
 from pathlib import Path
 
 import requests
@@ -29,6 +30,25 @@ def le_arquivo(caminho_arquivo) -> str:
         with open(path, 'r', encoding='utf-8') as f:
             return f.read()
     return ''
+
+
+# ── Pré-processamento de transcrição ─────────────────────────────────────────
+
+# Sons de hesitação do português falado — não filtra por idioma
+_HESITACOES = re.compile(r'\b([aã]+h+n?|h+m+n?)\b', re.IGNORECASE)
+# Palavra repetida 3 ou mais vezes seguidas (ex: "né né né", "eu eu eu")
+_REPETICOES = re.compile(r'\b(\w{2,})([ \t]+\1){2,}\b', re.IGNORECASE)
+
+
+def limpar_transcricao(texto: str) -> str:
+    """
+    Remove artefatos de fala sem filtrar por idioma.
+    Preserva palavras em inglês de uso corporativo (call, workspace, etc.).
+    """
+    texto = _HESITACOES.sub('', texto)
+    texto = _REPETICOES.sub(r'\1', texto)
+    texto = re.sub(r' {2,}', ' ', texto)
+    return texto.strip()
 
 
 # ── Serviços externos ────────────────────────────────────────────────────────

@@ -8,11 +8,12 @@ Abordagem de resumo:
   - Fallback: transcrições antigas sem timestamps usam map-reduce por caracteres
 """
 import re
+import time
 import streamlit as st
 from faster_whisper import WhisperModel
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from utils import le_arquivo, salva_arquivo
+from utils import le_arquivo, salva_arquivo, limpar_transcricao
 from llm.factory import LLMFactory
 from llm.prompts import (
     SUMMARY_PROMPT_V1, CHUNK_SUMMARY_PROMPT_V1,
@@ -109,6 +110,19 @@ def _agrupar_por_janela_tempo(transcricao: str, janela_seg: int = 25) -> list[di
     return chunks
 
 
+def _invocar_com_retry(chain, inputs: dict, max_tentativas: int = 2, espera_seg: float = 3.0):
+    """Chama chain.invoke com retry — trata quedas de conexão do Ollama."""
+    ultimo_erro = None
+    for tentativa in range(max_tentativas):
+        try:
+            return chain.invoke(inputs, config={"callbacks": [MeetingCallbackHandler()]})
+        except Exception as e:
+            ultimo_erro = e
+            if tentativa < max_tentativas - 1:
+                time.sleep(espera_seg)
+    raise ultimo_erro
+
+
 def _split_em_chunks(texto: str, tamanho: int = 4000, overlap: int = 400) -> list[str]:
     splitter = RecursiveCharacterTextSplitter(chunk_size=tamanho, chunk_overlap=overlap)
     return splitter.split_text(texto)
@@ -138,19 +152,44 @@ def gerar_resumo(pasta_reuniao) -> None:
 
         if chunks_tempo:
             # ── Abordagem principal: timeline indexada por segundos ─────────
+            pasta_chunks = pasta_reuniao / 'chunks'
+            pasta_chunks.mkdir(exist_ok=True)
+
             progress_bar = st.progress(0)
             status_text = st.empty()
             blocos_timeline: list[str] = []
 
             for i, chunk in enumerate(chunks_tempo):
                 label = f'[{chunk["inicio"]}s-{chunk["fim"]}s]'
+                nome_base = f'{i:04d}_{chunk["inicio"]}s-{chunk["fim"]}s'
+                resumo_path = pasta_chunks / f'{nome_base}_resumo.txt'
+
+                # Salva bruto e limpo independente de sucesso/falha do LLM
+                salva_arquivo(pasta_chunks / f'{nome_base}.txt', chunk['texto'])
+                texto_limpo = limpar_transcricao(chunk['texto'])
+                salva_arquivo(pasta_chunks / f'{nome_base}_clean.txt', texto_limpo)
+
+                # Checkpoint: reutiliza resumo já gerado sem chamar o LLM de novo
+                if resumo_path.exists():
+                    resumo_chunk = le_arquivo(resumo_path)
+                    blocos_timeline.append(f'{label}\n{resumo_chunk.strip()}')
+                    progress_bar.progress((i + 1) / len(chunks_tempo))
+                    continue
+
                 status_text.text(f'Resumindo {label}... ({i + 1}/{len(chunks_tempo)})')
                 chain = TIME_CHUNK_PROMPT_V1 | llm
-                resposta = chain.invoke(
-                    {"inicio": chunk["inicio"], "fim": chunk["fim"], "trecho": chunk["texto"]},
-                    config={"callbacks": [MeetingCallbackHandler()]},
-                )
-                blocos_timeline.append(f'{label}\n{resposta.content.strip()}')
+                try:
+                    resposta = _invocar_com_retry(
+                        chain,
+                        {"inicio": chunk["inicio"], "fim": chunk["fim"], "trecho": texto_limpo},
+                    )
+                    resumo_chunk = resposta.content.strip()
+                    salva_arquivo(resumo_path, resumo_chunk)
+                except Exception as chunk_err:
+                    st.warning(f'Falha no trecho {label} (2 tentativas): {chunk_err}')
+                    resumo_chunk = '- Trecho não processado.'
+
+                blocos_timeline.append(f'{label}\n{resumo_chunk}')
                 progress_bar.progress((i + 1) / len(chunks_tempo))
 
             progress_bar.empty()
@@ -160,10 +199,7 @@ def gerar_resumo(pasta_reuniao) -> None:
             st.info('Gerando síntese final...')
             timeline_texto = "\n\n".join(blocos_timeline)
             chain_reduce = TIMELINE_REDUCE_PROMPT_V1 | llm
-            resposta_final = chain_reduce.invoke(
-                {"timeline": timeline_texto},
-                config={"callbacks": [MeetingCallbackHandler()]},
-            )
+            resposta_final = _invocar_com_retry(chain_reduce, {"timeline": timeline_texto})
             resumo = f'{timeline_texto}\n\n---\n{resposta_final.content.strip()}'
 
         else:
@@ -177,27 +213,20 @@ def gerar_resumo(pasta_reuniao) -> None:
                 for i, chunk in enumerate(chunks):
                     status_text.text(f'Processando trecho {i + 1}/{len(chunks)}...')
                     chain_chunk = CHUNK_SUMMARY_PROMPT_V1 | llm
-                    resposta = chain_chunk.invoke(
-                        {"chunk": chunk},
-                        config={"callbacks": [MeetingCallbackHandler()]},
-                    )
+                    resposta = _invocar_com_retry(chain_chunk, {"chunk": chunk})
                     resumos_parciais.append(resposta.content)
                     progress_bar.progress((i + 1) / len(chunks))
                 progress_bar.empty()
                 status_text.empty()
                 st.info('Sintetizando resumo final...')
                 chain_final = SUMMARY_PROMPT_V1 | llm
-                resposta_final = chain_final.invoke(
-                    {"transcricao": "\n\n".join(resumos_parciais)},
-                    config={"callbacks": [MeetingCallbackHandler()]},
+                resposta_final = _invocar_com_retry(
+                    chain_final, {"transcricao": "\n\n".join(resumos_parciais)}
                 )
                 resumo = resposta_final.content
             else:
                 chain = SUMMARY_PROMPT_V1 | llm
-                resposta = chain.invoke(
-                    {"transcricao": transcricao},
-                    config={"callbacks": [MeetingCallbackHandler()]},
-                )
+                resposta = _invocar_com_retry(chain, {"transcricao": transcricao})
                 resumo = resposta.content
 
         resumo += f'\n\n---\n*Resumo gerado pelo modelo: {model} ({provedor_ui})*'

@@ -1,5 +1,6 @@
 from pathlib import Path
 from datetime import datetime
+from io import BytesIO
 import time
 import queue
 import subprocess
@@ -178,6 +179,45 @@ def _indicador_gravando(container, elapsed_secs: int):
 """, unsafe_allow_html=True)
 
 
+# ── TAB IMPORTAR ÁUDIO ───────────────────────────────────────────────────────
+
+def tab_importar_audio():
+    titulo = st.text_input(
+        'Título da reunião',
+        placeholder='Ex: Reunião de planejamento Q2',
+        help='Defina o título antes de transcrever',
+    )
+    arquivo = st.file_uploader(
+        'Selecione o arquivo de áudio',
+        type=['m4a', 'mp3', 'wav'],
+        help='Formatos suportados: M4A, MP3, WAV',
+    )
+
+    if arquivo:
+        if st.button('🎙️ Transcrever', type='primary'):
+            pasta_reuniao = PASTA_ARQUIVOS / datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
+            pasta_reuniao.mkdir(parents=True, exist_ok=True)
+
+            if titulo.strip():
+                salva_arquivo(pasta_reuniao / 'titulo.txt', titulo.strip())
+
+            try:
+                with st.spinner('Convertendo áudio...'):
+                    audio = pydub.AudioSegment.from_file(BytesIO(arquivo.read()))
+                    audio = audio.set_frame_rate(16000).set_channels(1)
+                    audio.export(pasta_reuniao / 'audio.mp3', format='mp3')
+            except Exception as e:
+                st.error(f'Não foi possível ler o arquivo: {e}')
+                return
+
+            modelo = st.session_state.get('modelo_whisper', 'base')
+            with st.spinner(f'Transcrevendo com modelo {modelo}...'):
+                retranscrever_reuniao(pasta_reuniao, modelo)
+
+            st.session_state['ir_para_historico'] = True
+            st.rerun()
+
+
 # ── TAB GRAVA REUNIÃO ─────────────────────────────────────────────────────────
 
 def tab_grava_reuniao():
@@ -298,23 +338,26 @@ def tab_grava_reuniao():
     audio_chunck = pydub.AudioSegment.empty()
     audio_parts: list[Path] = []
     transcricao = ''
+    audio_offset_seg = 0.0
 
     def _transcrever_e_salvar(chunk: pydub.AudioSegment) -> str:
-        """Exporta chunk, transcreve e salva — reutilizado pelos 3 modos."""
-        nonlocal transcricao, ultima_transcricao
+        """Exporta chunk, transcreve com offset absoluto e salva — reutilizado pelos 3 modos."""
+        nonlocal transcricao, ultima_transcricao, audio_offset_seg
+        chunk_duration_seg = len(chunk) / 1000.0
         part_path = pasta_reuniao / f'audio_part_{len(audio_parts):04d}.mp3'
         chunk.export(part_path, format='mp3')
         audio_parts.append(part_path)
         chunk.export(pasta_reuniao / 'audio_temp.mp3', format='mp3')
         try:
-            trecho = transcreve_audio(pasta_reuniao / 'audio_temp.mp3')
-            transcricao += f' {trecho}'
+            trecho = transcreve_audio(pasta_reuniao / 'audio_temp.mp3', offset_seg=audio_offset_seg)
+            transcricao = (transcricao + '\n' + trecho).strip()
             modelo_whisper = st.session_state.get('modelo_whisper', 'base')
             nota = f'\n\n---\n*Transcrição: Faster-Whisper ({modelo_whisper})*'
             salva_arquivo(pasta_reuniao / 'transcricao.txt', transcricao + nota)
             transcricao_container.markdown(transcricao)
         except Exception as e:
             st.error(f'Erro na transcrição: {e}')
+        audio_offset_seg += chunk_duration_seg
         ultima_transcricao = time.time()
         return transcricao
 
@@ -632,7 +675,17 @@ def main():
     tab_gravar, tab_selecao = st.tabs(['🔴 Gravar Reunião', '📂 Histórico'])
 
     with tab_gravar:
-        tab_grava_reuniao()
+        modo = st.radio(
+            'Modo',
+            ['🔴 Gravar ao vivo', '📤 Importar arquivo'],
+            horizontal=True,
+            label_visibility='collapsed',
+        )
+        st.divider()
+        if modo == '🔴 Gravar ao vivo':
+            tab_grava_reuniao()
+        else:
+            tab_importar_audio()
 
     with tab_selecao:
         tab_selecao_reuniao()

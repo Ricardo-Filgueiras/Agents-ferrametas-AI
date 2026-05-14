@@ -42,6 +42,40 @@ CHUNK_SUMMARY_PROMPT_V1 = ChatPromptTemplate.from_messages([
      ),
 ])
 
+# ── v1 — Resumo de janela de tempo (MAP da timeline) ─────────────────────
+TIME_CHUNK_PROMPT_V1 = ChatPromptTemplate.from_messages([
+    SystemMessagePromptTemplate.from_template(
+        "Você é um assistente especialista em análise de reuniões corporativas. "
+        "Seja direto e objetivo. Responda sempre em português."
+    ),
+    ("human",
+     "Extraia os pontos principais e decisões deste trecho de reunião "
+     "(intervalo {inicio}s a {fim}s do áudio).\n"
+     "Seja conciso — máximo 80 palavras. Liste como bullet points.\n\n"
+     "Trecho:\n####\n{trecho}\n####\n\n"
+     "IMPORTANTE: Responda EXCLUSIVAMENTE em português brasileiro."
+     ),
+])
+
+# ── v1 — Síntese final da timeline (REDUCE) ──────────────────────────────
+TIMELINE_REDUCE_PROMPT_V1 = ChatPromptTemplate.from_messages([
+    SystemMessagePromptTemplate.from_template(
+        "Você é um assistente especialista em análise de reuniões corporativas. "
+        "Seja direto, objetivo e estruturado. Responda sempre em português."
+    ),
+    ("human",
+     "Com base na timeline de resumos abaixo, produza a síntese consolidada no formato exato:\n\n"
+     "Resumo reunião:\n"
+     "- [texto corrido com os principais assuntos, máx. 450 caracteres]\n\n"
+     "Acordos da Reunião:\n"
+     "- [acordo 1]\n"
+     "- [acordo 2]\n"
+     "- Se não houver acordos explícitos, escreva: '- Nenhum acordo registrado.'\n\n"
+     "Timeline:\n####\n{timeline}\n####\n\n"
+     "IMPORTANTE: Responda EXCLUSIVAMENTE em português brasileiro."
+     ),
+])
+
 # ── v1 — Q&A sobre histórico de reuniões (RAG) ───────────────────────────
 MEETING_QA_PROMPT_V1 = ChatPromptTemplate.from_messages([
     SystemMessagePromptTemplate.from_template(

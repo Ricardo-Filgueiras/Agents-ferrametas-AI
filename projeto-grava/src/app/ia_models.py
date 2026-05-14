@@ -1,40 +1,53 @@
 """
 ia_models — camada de IA (transcrição + resumo).
 
-Refatorado para usar:
-  - LLMFactory: sem clientes globais, com cache por (provider, model)
-  - ChatPromptTemplate tipado (llm/prompts.py)
-  - MeetingCallbackHandler: latência e tokens logados automaticamente
-  - Map-reduce chunking sequencial para transcrições longas (> 4000 chars)
+Abordagem de resumo:
+  - Transcrição armazena timestamps por segmento: [Xs-Ys] texto
+  - gerar_resumo() agrupa segmentos em janelas de ~25s e resume cada janela (MAP)
+  - Fase REDUCE sintetiza a timeline em resumo global + acordos
+  - Fallback: transcrições antigas sem timestamps usam map-reduce por caracteres
 """
+import re
 import streamlit as st
 from faster_whisper import WhisperModel
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from utils import le_arquivo, salva_arquivo
 from llm.factory import LLMFactory
-from llm.prompts import SUMMARY_PROMPT_V1, CHUNK_SUMMARY_PROMPT_V1
+from llm.prompts import (
+    SUMMARY_PROMPT_V1, CHUNK_SUMMARY_PROMPT_V1,
+    TIME_CHUNK_PROMPT_V1, TIMELINE_REDUCE_PROMPT_V1,
+)
 from llm.callbacks import MeetingCallbackHandler
+
+_TIMESTAMP_RE = re.compile(r'^\[(\d+)s-(\d+)s\]\s*(.*)')
 
 
 # ── Transcrição (Faster-Whisper local) ──────────────────────────────────────
 
 @st.cache_resource
 def carregar_whisper(tamanho_modelo: str = 'base') -> WhisperModel:
-    """Carrega o modelo Whisper uma vez e reutiliza via cache do Streamlit."""
     return WhisperModel(tamanho_modelo, device="cpu", compute_type="int8")
 
 
-def transcreve_audio(caminho_audio) -> str:
-    """Transcreve um arquivo de áudio usando Faster-Whisper (local, CPU)."""
-    tamanho_modelo = st.session_state.get('modelo_whisper', 'base')
+def transcreve_audio(
+    caminho_audio,
+    offset_seg: float = 0.0,
+    modelo_override: str | None = None,
+) -> str:
+    """Transcreve áudio com Faster-Whisper. Retorna linhas '[Xs-Ys] texto'."""
+    tamanho_modelo = modelo_override or st.session_state.get('modelo_whisper', 'base')
     whisper = carregar_whisper(tamanho_modelo)
     segments, _ = whisper.transcribe(str(caminho_audio), beam_size=5, language='pt')
-    return "\n".join(s.text for s in segments)
+    linhas = [
+        f"[{int(s.start + offset_seg)}s-{int(s.end + offset_seg)}s] {s.text.strip()}"
+        for s in segments
+    ]
+    return "\n".join(linhas)
 
 
 def retranscrever_reuniao(pasta_reuniao, modelo_whisper: str) -> None:
-    """Re-transcreve audio.mp3 com o modelo Whisper escolhido e salva transcricao.txt."""
+    """Re-transcreve audio.mp3 com timestamps absolutos e salva transcricao.txt."""
     from pathlib import Path
 
     audio_path = Path(pasta_reuniao) / 'audio.mp3'
@@ -42,33 +55,73 @@ def retranscrever_reuniao(pasta_reuniao, modelo_whisper: str) -> None:
         st.error('Arquivo audio.mp3 não encontrado nesta reunião.')
         return
 
-    whisper = carregar_whisper(modelo_whisper)
-    segments, _ = whisper.transcribe(str(audio_path), beam_size=5, language='pt')
-    texto = "\n".join(s.text for s in segments)
-
+    texto = transcreve_audio(audio_path, modelo_override=modelo_whisper)
     texto += f'\n\n---\n*Transcrição gerada pelo modelo: {modelo_whisper}*'
     salva_arquivo(Path(pasta_reuniao) / 'transcricao.txt', texto)
     st.success(f'✅ Transcrição concluída com modelo {modelo_whisper}!')
 
 
-# ── Resumo (LLM via LCEL) ────────────────────────────────────────────────────
+# ── Chunking por janela de tempo ─────────────────────────────────────────────
+
+def _agrupar_por_janela_tempo(transcricao: str, janela_seg: int = 25) -> list[dict]:
+    """
+    Lê linhas '[Xs-Ys] texto' e agrupa em janelas de até janela_seg segundos.
+    Retorna lista de dicts {inicio, fim, texto}. Retorna [] se não há timestamps.
+    """
+    segmentos = []
+    for linha in transcricao.splitlines():
+        m = _TIMESTAMP_RE.match(linha.strip())
+        if m:
+            segmentos.append({
+                'inicio': int(m.group(1)),
+                'fim': int(m.group(2)),
+                'texto': m.group(3).strip(),
+            })
+
+    if not segmentos:
+        return []
+
+    chunks: list[dict] = []
+    chunk_atual = [segmentos[0]]
+    inicio_chunk = segmentos[0]['inicio']
+    fim_chunk = segmentos[0]['fim']
+
+    for seg in segmentos[1:]:
+        if seg['fim'] - inicio_chunk > janela_seg:
+            chunks.append({
+                'inicio': inicio_chunk,
+                'fim': fim_chunk,
+                'texto': ' '.join(c['texto'] for c in chunk_atual),
+            })
+            chunk_atual = [seg]
+            inicio_chunk = seg['inicio']
+            fim_chunk = seg['fim']
+        else:
+            chunk_atual.append(seg)
+            fim_chunk = seg['fim']
+
+    if chunk_atual:
+        chunks.append({
+            'inicio': inicio_chunk,
+            'fim': fim_chunk,
+            'texto': ' '.join(c['texto'] for c in chunk_atual),
+        })
+    return chunks
+
 
 def _split_em_chunks(texto: str, tamanho: int = 4000, overlap: int = 400) -> list[str]:
-    """Divide texto em chunks usando RecursiveCharacterTextSplitter."""
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=tamanho,
-        chunk_overlap=overlap,
-    )
+    splitter = RecursiveCharacterTextSplitter(chunk_size=tamanho, chunk_overlap=overlap)
     return splitter.split_text(texto)
 
+
+# ── Resumo (LLM via LCEL) ────────────────────────────────────────────────────
 
 def gerar_resumo(pasta_reuniao) -> None:
     """
     Gera resumo da reunião via LLM e salva em resumo.txt.
 
-    Para transcrições longas (> 4000 chars): usa map-reduce chunking sequencial.
-    Ollama em CPU processa 1 requisição por vez — processar em série é equivalente
-    ao ThreadPoolExecutor, sem o risco de condição de corrida no cliente HTTP.
+    Para transcrições com timestamps: timeline indexada por segundos + síntese final.
+    Para transcrições antigas (sem timestamps): map-reduce por caracteres (fallback).
     """
     transcricao = le_arquivo(pasta_reuniao / 'transcricao.txt')
     if not transcricao:
@@ -81,45 +134,71 @@ def gerar_resumo(pasta_reuniao) -> None:
 
     try:
         llm = LLMFactory.create(provider=provedor_ui, model=model)
+        chunks_tempo = _agrupar_por_janela_tempo(transcricao)
 
-        usar_chunking = len(transcricao) > 10000
-
-        if usar_chunking:
-            chunks = _split_em_chunks(transcricao)
+        if chunks_tempo:
+            # ── Abordagem principal: timeline indexada por segundos ─────────
             progress_bar = st.progress(0)
             status_text = st.empty()
+            blocos_timeline: list[str] = []
 
-            # MAP phase: uma nova chain por chunk evita estado compartilhado
-            resumos_parciais = []
-            for i, chunk in enumerate(chunks):
-                status_text.text(f'Processando trecho {i + 1}/{len(chunks)}...')
-                chain_chunk = CHUNK_SUMMARY_PROMPT_V1 | llm
-                resposta = chain_chunk.invoke(
-                    {"chunk": chunk},
+            for i, chunk in enumerate(chunks_tempo):
+                label = f'[{chunk["inicio"]}s-{chunk["fim"]}s]'
+                status_text.text(f'Resumindo {label}... ({i + 1}/{len(chunks_tempo)})')
+                chain = TIME_CHUNK_PROMPT_V1 | llm
+                resposta = chain.invoke(
+                    {"inicio": chunk["inicio"], "fim": chunk["fim"], "trecho": chunk["texto"]},
                     config={"callbacks": [MeetingCallbackHandler()]},
                 )
-                resumos_parciais.append(resposta.content)
-                progress_bar.progress((i + 1) / len(chunks))
+                blocos_timeline.append(f'{label}\n{resposta.content.strip()}')
+                progress_bar.progress((i + 1) / len(chunks_tempo))
 
             progress_bar.empty()
             status_text.empty()
 
-            # REDUCE phase: sintetizar resumos parciais
-            st.info('Sintetizando resumo final...')
-            resumos_juntos = "\n\n".join(resumos_parciais)
-            chain_final = SUMMARY_PROMPT_V1 | llm
-            resposta_final = chain_final.invoke(
-                {"transcricao": resumos_juntos},
+            # ── Fase REDUCE: síntese global + acordos ──────────────────────
+            st.info('Gerando síntese final...')
+            timeline_texto = "\n\n".join(blocos_timeline)
+            chain_reduce = TIMELINE_REDUCE_PROMPT_V1 | llm
+            resposta_final = chain_reduce.invoke(
+                {"timeline": timeline_texto},
                 config={"callbacks": [MeetingCallbackHandler()]},
             )
-            resumo = resposta_final.content
+            resumo = f'{timeline_texto}\n\n---\n{resposta_final.content.strip()}'
+
         else:
-            chain = SUMMARY_PROMPT_V1 | llm
-            resposta = chain.invoke(
-                {"transcricao": transcricao},
-                config={"callbacks": [MeetingCallbackHandler()]},
-            )
-            resumo = resposta.content
+            # ── Fallback: transcrição sem timestamps (gravações antigas) ───
+            usar_chunking = len(transcricao) > 10000
+            if usar_chunking:
+                chunks = _split_em_chunks(transcricao)
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                resumos_parciais: list[str] = []
+                for i, chunk in enumerate(chunks):
+                    status_text.text(f'Processando trecho {i + 1}/{len(chunks)}...')
+                    chain_chunk = CHUNK_SUMMARY_PROMPT_V1 | llm
+                    resposta = chain_chunk.invoke(
+                        {"chunk": chunk},
+                        config={"callbacks": [MeetingCallbackHandler()]},
+                    )
+                    resumos_parciais.append(resposta.content)
+                    progress_bar.progress((i + 1) / len(chunks))
+                progress_bar.empty()
+                status_text.empty()
+                st.info('Sintetizando resumo final...')
+                chain_final = SUMMARY_PROMPT_V1 | llm
+                resposta_final = chain_final.invoke(
+                    {"transcricao": "\n\n".join(resumos_parciais)},
+                    config={"callbacks": [MeetingCallbackHandler()]},
+                )
+                resumo = resposta_final.content
+            else:
+                chain = SUMMARY_PROMPT_V1 | llm
+                resposta = chain.invoke(
+                    {"transcricao": transcricao},
+                    config={"callbacks": [MeetingCallbackHandler()]},
+                )
+                resumo = resposta.content
 
         resumo += f'\n\n---\n*Resumo gerado pelo modelo: {model} ({provedor_ui})*'
         salva_arquivo(pasta_reuniao / 'resumo.txt', resumo)

@@ -11,12 +11,12 @@ editor_agent = Agent(
         "Você é rigoroso e focado na excelência do conteúdo.",
         "Analise o texto quanto à gramática, fluidez, tom de voz e clareza técnica.",
         "Verifique se o texto cumpre as promessas do outline de SEO.",
-        "Se o texto não estiver excelente, negue a aprovação (is_approved=False) e forneça feedbacks específicos.",
-        "Destaque pontos de conflito onde o escritor se afastou da estratégia.",
+        "A resposta DEVE ser um objeto com is_approved (booleano) e feedback (lista de strings).",
+        "Só aprove (is_approved=True) se a qualidade técnica for excelente."
     ],
     markdown=True,
+    debug_mode=True,
 )
 
 def get_editor():
     return editor_agent
-

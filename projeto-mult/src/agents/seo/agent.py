@@ -17,6 +17,7 @@ seo_agent = Agent(
         "Siga rigorosamente os schemas de saída fornecidos.",
     ],
     markdown=True,
+    debug_mode=True, # Ativado a pedido do usuário
 )
 
 

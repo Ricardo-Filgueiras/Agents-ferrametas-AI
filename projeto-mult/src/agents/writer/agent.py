@@ -18,6 +18,7 @@ writer_agent = Agent(
         "Mantenha um tom profissional, mas acessível.",
     ],
     markdown=True,
+    debug_mode=True,
 )
 
 def get_technical_writer():

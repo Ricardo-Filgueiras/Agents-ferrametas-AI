@@ -14,6 +14,7 @@ designer_agent = Agent(
         "Foque em infográficos, metáforas visuais para conceitos de software e thumbnails atrativas.",
     ],
     markdown=True,
+    debug_mode=True,
 )
 
 def get_designer():

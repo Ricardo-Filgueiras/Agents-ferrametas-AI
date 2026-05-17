@@ -1,11 +1,24 @@
+import os
 from agno.agent import Agent
 from agno.models.ollama import Ollama
+from agno.models.google import Gemini
 from src.schemas.state import Draft
 
-# O Writer usa o modelo local para a escrita pesada
+# Seleção de modelo baseada em disponibilidade de API Key
+google_api_key = os.getenv("GOOGLE_API_KEY")
+
+if google_api_key:
+    # Mesmo tendo API Key, podemos escolher o Flash Lite ou Flash para custo/velocidade
+    model = Gemini(id="gemini-2.0-flash")
+    print("--- USANDO GEMINI PARA ESCRITA TÉCNICA ---")
+else:
+    model = Ollama(id="llama3.2:3b")
+    print("--- USANDO OLLAMA PARA ESCRITA TÉCNICA ---")
+
+# O Writer usa o modelo local para a escrita pesada (ou Gemini como fallback potente)
 writer_agent = Agent(
     name="Technical Writer",
-    model=Ollama(id="llama3.2:3b"),
+    model=model,
     role="Redator Técnico Especialista em Escrita Didática e Storytelling",
     instructions=[
         "Você transforma outlines de SEO em artigos técnicos profundos e envolventes.",

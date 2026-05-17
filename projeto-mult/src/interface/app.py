@@ -2,6 +2,9 @@ import streamlit as st
 import pandas as pd
 import sys
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 import requests
 
@@ -26,74 +29,102 @@ def load_articles():
 st.title("🚀 Lean Blog Engine")
 st.markdown("Equipe Multi-Agente de Elite para Conteúdo Orgânico")
 
-# Sidebar para seleção de artigos
-articles = load_articles()
-if not articles:
-    st.warning("Nenhum artigo encontrado no banco de dados. Rode o pipeline primeiro!")
-else:
-    article_titles = [f"{a.id} - {a.topic}" for a in articles]
-    selected_option = st.sidebar.selectbox("Selecione um Artigo", article_titles)
-    selected_id = int(selected_option.split(" - ")[0])
+# Abas principais
+tab_ler, tab_criar = st.tabs(["📖 Ler Artigos", "✨ Criar Novo Artigo"])
+
+with tab_criar:
+    st.header("Gerar Novo Artigo")
+    st.markdown("Preencha os dados abaixo para iniciar a geração do artigo com os agentes.")
+    tema_input = st.text_input("Tema", placeholder="Ex: Finanças Pessoais: Guia Definitivo...")
+    keywords_input = st.text_input("Palavras-chave (separadas por vírgula)", placeholder="Finanças, Iniciantes, Dicas")
     
-    # Busca o artigo selecionado
-    article = session.query(Article).filter(Article.id == selected_id).first()
+    if st.button("🚀 Iniciar Geração em Background", type="primary"):
+        if not tema_input or not keywords_input:
+            st.warning("Por favor, preencha o tema e as palavras-chave.")
+        else:
+            kws = [k.strip() for k in keywords_input.split(",") if k.strip()]
+            from src.main import run_blog_pipeline
+            import threading
+            # Inicia o pipeline em uma thread separada para não bloquear a interface
+            t = threading.Thread(target=run_blog_pipeline, args=(tema_input, kws))
+            t.start()
+            st.success("✅ O processo foi iniciado em background! Você pode ler outros artigos enquanto a equipe trabalha. Os logs de execução aparecerão no terminal em que o Streamlit está rodando.")
 
-    # Layout Principal
-    col1, col2 = st.columns([2, 1])
-
-    with col1:
-        st.header(f"📝 {getattr(article, 'title', article.topic)}")
-        st.caption(f"Tópico: {article.topic} | Categoria: {getattr(article, 'category', 'Geral')} | Tags: {', '.join(getattr(article, 'tags', []) or [])}")
+with tab_ler:
+    # Sidebar para seleção de artigos
+    articles = load_articles()
+    if not articles:
+        st.warning("Nenhum artigo encontrado no banco de dados. Crie um novo artigo na aba 'Criar Novo Artigo'!")
+    else:
+        article_titles = [f"{a.id} - {a.topic}" for a in articles]
+        selected_option = st.sidebar.selectbox("Selecione um Artigo", article_titles)
+        selected_id = int(selected_option.split(" - ")[0])
         
-        st.markdown("---")
-        st.markdown(article.content_markdown)
+        # Busca o artigo selecionado
+        article = session.query(Article).filter(Article.id == selected_id).first()
 
-    with col2:
-        st.subheader("🌐 Publicação via n8n")
-        webhook_url = st.text_input("Webhook URL (n8n)", value="", placeholder="https://seu-n8n.com/webhook/...")
-        is_public = st.checkbox("Tornar artigo público? (is_public)", value=False)
-        
-        if st.button("🚀 Enviar para n8n", use_container_width=True):
-            if not webhook_url:
-                st.error("Por favor, insira a URL do Webhook.")
-            else:
-                # Monta o pacote estruturado para o n8n
-                payload = {
-                    "id": article.id,
-                    "title": getattr(article, "title", article.topic),
-                    "category": getattr(article, "category", "Geral"),
-                    "tags": getattr(article, "tags", []),
-                    "meta_title": getattr(article, "meta_title", ""),
-                    "meta_description": getattr(article, "meta_description", ""),
-                    "excerpt": getattr(article, "excerpt", ""),
-                    "content_markdown": article.content_markdown,
-                    "is_public": is_public,
-                    "seo_score": article.seo_score
-                }
-                
-                try:
-                    with st.spinner("Enviando para o n8n..."):
-                        response = requests.post(webhook_url, json=payload)
-                        response.raise_for_status()
-                    st.success("✅ Publicado no n8n com sucesso!")
-                except Exception as e:
-                    st.error(f"❌ Erro ao enviar: {str(e)}")
+        # Layout Principal
+        col1, col2 = st.columns([2, 1])
+
+        with col1:
+            st.header(f"📝 {getattr(article, 'title', article.topic)}")
+            st.caption(f"Tópico: {article.topic} | Categoria: {getattr(article, 'category', 'Geral')} | Tags: {', '.join(getattr(article, 'tags', []) or [])}")
+            
+            st.markdown("---")
+            st.markdown(article.content_markdown)
+
+        with col2:
+            st.subheader("🌐 Publicação via n8n")
+            default_webhook = os.getenv("WEBHOOK_N8N_POST_ART", "")
+            webhook_url = st.text_input("Webhook URL (n8n)", value=default_webhook, placeholder="https://seu-n8n.com/webhook/...")
+            is_public = st.checkbox("Tornar artigo público? (is_public)", value=False)
+            
+            if st.button("🚀 Enviar para n8n", use_container_width=True):
+                if not webhook_url:
+                    st.error("Por favor, insira a URL do Webhook.")
+                else:
+                    # Monta o pacote estruturado para o n8n (Blindagem contra campos vazios)
+                    payload = {
+                        "id": article.id,
+                        "topic": article.topic,
+                        "keywords": article.keywords if isinstance(article.keywords, list) else [],
+                        "title": article.title or article.topic,
+                        "category": article.category or "Geral",
+                        "tags": article.tags if isinstance(article.tags, list) else [],
+                        "meta_title": article.meta_title or "",
+                        "meta_description": article.meta_description or "",
+                        "excerpt": article.excerpt or "",
+                        "outline": article.outline if isinstance(article.outline, list) else [],
+                        "content_markdown": article.content_markdown or "",
+                        "is_public": is_public,
+                        "seo_score": article.seo_score or 0,
+                        "image_prompts": article.image_prompts if isinstance(article.image_prompts, list) else [],
+                        "created_at": article.created_at.isoformat() if article.created_at else None
+                    }
                     
-        st.markdown("---")
-        st.subheader("📊 Metadados & SEO")
-        st.metric("SEO Score", f"{article.seo_score}/10")
-        st.metric("Revisões", article.iteration_count)
-        
-        status = "✅ Validado" if article.is_validated else "⚠️ Pendente"
-        st.info(f"Status: {status}")
+                    try:
+                        with st.spinner("Enviando para o n8n..."):
+                            response = requests.post(webhook_url, json=payload)
+                            response.raise_for_status()
+                        st.success("✅ Publicado no n8n com sucesso!")
+                    except Exception as e:
+                        st.error(f"❌ Erro ao enviar: {str(e)}")
+                        
+            st.markdown("---")
+            st.subheader("📊 Metadados & SEO")
+            st.metric("SEO Score", f"{getattr(article, 'seo_score', 0)}/10")
+            st.metric("Revisões", getattr(article, 'iteration_count', 0))
+            
+            status = "✅ Validado" if getattr(article, 'is_validated', False) else "⚠️ Pendente"
+            st.info(f"Status: {status}")
 
-        st.subheader("🎨 Image Prompts")
-        for i, prompt in enumerate(article.image_prompts):
-            st.code(prompt, language="markdown")
+            st.subheader("🎨 Image Prompts")
+            for i, prompt in enumerate(getattr(article, 'image_prompts', []) or []):
+                st.code(prompt, language="markdown")
 
-        st.subheader("🕒 Logs de Execução")
-        if article.execution_logs:
-            df_logs = pd.DataFrame(article.execution_logs)
-            st.dataframe(df_logs)
+            st.subheader("🕒 Logs de Execução")
+            if getattr(article, 'execution_logs', None):
+                df_logs = pd.DataFrame(article.execution_logs)
+                st.dataframe(df_logs)
 
 session.close()

@@ -25,7 +25,7 @@ def planning_node(state: AgentState):
         agent_name="SEO Strategist",
         step="Planning",
         execution_time=execution_time,
-        model_used="llama3.2:3b",
+        model_used=getattr(planner.model, "id", "unknown"),
         success=True
     ))
     return state
@@ -61,7 +61,7 @@ def writing_node(state: AgentState):
         agent_name="Technical Writer",
         step=f"Writing (It {state['iteration_count']})",
         execution_time=execution_time,
-        model_used="llama3.2:3b",
+        model_used=getattr(writer.model, "id", "unknown"),
         success=True
     ))
     return state
@@ -91,7 +91,7 @@ def editing_node(state: AgentState):
         agent_name="Editor",
         step="Review",
         execution_time=execution_time,
-        model_used="llama3.2:3b",
+        model_used=getattr(editor.model, "id", "unknown"),
         success=True
     ))
     return state
@@ -120,7 +120,7 @@ def design_node(state: AgentState):
         agent_name="Designer",
         step="Design Prompts",
         execution_time=execution_time,
-        model_used="llama3.2:3b",
+        model_used=getattr(designer.model, "id", "unknown"),
         success=True
     ))
     return state
@@ -155,7 +155,7 @@ def validation_node(state: AgentState):
         agent_name="SEO Validator",
         step="Final Validation",
         execution_time=execution_time,
-        model_used="llama3.2:3b",
+        model_used=getattr(validator.model, "id", "unknown"),
         success=True
     ))
     return state

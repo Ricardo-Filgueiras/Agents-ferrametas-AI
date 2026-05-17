@@ -1,11 +1,23 @@
+import os
 from agno.agent import Agent
 from agno.models.ollama import Ollama
+from agno.models.google import Gemini
 from src.schemas.state import DesignPrompts
 
-# Configurado para Ollama durante desenvolvimento
+# Seleção de modelo baseada em disponibilidade de API Key
+google_api_key = os.getenv("GOOGLE_API_KEY")
+
+if google_api_key:
+    model = Gemini(id="gemini-2.0-flash")
+    print("--- USANDO GEMINI PARA DESIGN DE CONTEÚDO ---")
+else:
+    model = Ollama(id="llama3.2:3b")
+    print("--- USANDO OLLAMA PARA DESIGN DE CONTEÚDO ---")
+
+# Configurado para Ollama durante desenvolvimento (ou Gemini como fallback)
 designer_agent = Agent(
     name="Content Designer",
-    model=Ollama(id="llama3.2:3b"),
+    model=model,
     role="Designer de Conteúdo e Especialista em Engenharia de Prompt Visual",
     instructions=[
         "Sua tarefa é criar prompts de imagem que complementem o artigo técnico.",

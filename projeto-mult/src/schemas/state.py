@@ -70,3 +70,7 @@ class AgentState(TypedDict):
     
     # Observabilidade
     logs: List[AgentExecutionLog]
+    
+    # Status Final (facilitadores para o banco)
+    is_validated: bool
+    final_score: float

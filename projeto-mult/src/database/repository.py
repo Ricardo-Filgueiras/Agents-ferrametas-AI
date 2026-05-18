@@ -1,4 +1,5 @@
 import json
+import re
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from src.database.models import Base, Article
@@ -10,13 +11,42 @@ class ArticleRepository:
         Base.metadata.create_all(self.engine)
         self.Session = sessionmaker(bind=self.engine)
 
+    def _extract_json_from_text(self, text: str) -> dict:
+        """
+        Tenta extrair um objeto JSON de dentro de uma string de texto.
+        Prioriza blocos marcados com ```json.
+        """
+        if not isinstance(text, str):
+            return None
+        
+        try:
+            # 1. Tenta encontrar blocos de código JSON ```json { ... } ```
+            json_block = re.search(r'```json\s*(\{.*?\})\s*```', text, re.DOTALL)
+            if json_block:
+                return json.loads(json_block.group(1))
+            
+            # 2. Tenta encontrar qualquer coisa entre chaves { ... }
+            match = re.search(r'(\{.*\})', text, re.DOTALL)
+            if match:
+                return json.loads(match.group(1))
+        except:
+            pass
+        return None
+
     def save_agent_state(self, state: AgentState):
         session = self.Session()
         try:
             # Helper para extrair dados de objetos (Resiliência contra métodos nativos de strings)
             def safe_get(obj, attr, default=""):
                 if obj is None: return default
-                if isinstance(obj, str): return default # Ignora strings puras na busca por atributos
+                
+                # Se for string, tenta extrair JSON dela primeiro
+                if isinstance(obj, str):
+                    extracted = self._extract_json_from_text(obj)
+                    if extracted and attr in extracted:
+                        return extracted[attr]
+                    return default # Se não achou o atributo no JSON extraído, mantém default
+                
                 if hasattr(obj, attr):
                     val = getattr(obj, attr)
                     if not callable(val): # Previne pegar métodos como .title() das strings
@@ -34,39 +64,63 @@ class ArticleRepository:
 
             
             # Extração flexível de dados
-            title = safe_get(state["plan"], "title", state["topic"])
-            category = safe_get(state["plan"], "category", "Geral")
-            meta_title = safe_get(state["plan"], "meta_title", title)
-            meta_description = safe_get(state["plan"], "meta_description", "")
+            plan_obj = state.get("plan")
+            title = safe_get(plan_obj, "title", state["topic"])
+            category = safe_get(plan_obj, "category", "Geral")
+            meta_title = safe_get(plan_obj, "meta_title", title)
+            meta_description = safe_get(plan_obj, "meta_description", "")
+            
+            # Limpeza de conteúdo Markdown (Remover JSON sobrando se o modelo repetiu)
+            content_md = safe_get(state["draft"], "markdown_content", str(state["draft"]))
+            content_md = re.sub(r'```json.*?```', '', content_md, flags=re.DOTALL).strip()
+
             excerpt = safe_get(state["draft"], "excerpt", "")
             
             outline = []
             tags = []
-            if state["plan"]:
-                if hasattr(state["plan"], "outline"):
-                    outline = state["plan"].outline
-                elif isinstance(state["plan"], str):
-                    outline = [state["plan"]]
+            if plan_obj:
+                if hasattr(plan_obj, "outline"):
+                    outline = plan_obj.outline
+                elif isinstance(plan_obj, str):
+                    extracted = self._extract_json_from_text(plan_obj)
+                    if extracted and "outline" in extracted:
+                        outline = extracted["outline"]
+                    else:
+                        # Se não é JSON, mas é texto, tentamos pegar linhas que pareçam tópicos
+                        lines = [line.strip() for line in plan_obj.split('\n') if line.strip()]
+                        outline = lines[:10] # Pega as 10 primeiras linhas como fallback
                     
-                if hasattr(state["plan"], "tags"):
-                    tags = state["plan"].tags
+                if hasattr(plan_obj, "tags"):
+                    tags = plan_obj.tags
+                elif isinstance(plan_obj, str):
+                    extracted = self._extract_json_from_text(plan_obj)
+                    if extracted and "tags" in extracted:
+                        tags = extracted["tags"]
 
-            content_md = safe_get(state["draft"], "markdown_content", str(state["draft"]))
-            
             image_prompts = []
             if state["design"]:
                 if hasattr(state["design"], "image_prompts"):
                     image_prompts = state["design"].image_prompts
                 elif isinstance(state["design"], str):
-                    image_prompts = [state["design"]]
+                    extracted = self._extract_json_from_text(state["design"])
+                    if extracted and "image_prompts" in extracted:
+                        image_prompts = extracted["image_prompts"]
+                    else:
+                        # Fallback: Se o modelo mandou texto puro com prompts, tenta separar por "Prompt"
+                        parts = re.split(r'Prompt \d+:', state["design"])
+                        image_prompts = [p.strip() for p in parts if len(p.strip()) > 10]
 
             seo_score = 0.0
             if state["validation"]:
                 if hasattr(state["validation"], "seo_score"):
                     seo_score = state["validation"].seo_score
                 else:
-                    try: seo_score = float(str(state["validation"]))
-                    except: seo_score = 0.0
+                    extracted = self._extract_json_from_text(str(state["validation"]))
+                    if extracted and "seo_score" in extracted:
+                        seo_score = extracted["seo_score"]
+                    else:
+                        try: seo_score = float(str(state["validation"]))
+                        except: seo_score = 0.0
 
             new_article = Article(
                 topic=state["topic"],

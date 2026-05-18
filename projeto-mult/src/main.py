@@ -1,4 +1,9 @@
 import os
+from dotenv import load_dotenv
+
+# Carrega as variáveis de ambiente antes de importar qualquer componente do projeto
+load_dotenv()
+
 from src.graph.workflow import create_workflow
 from src.database.repository import ArticleRepository
 from src.schemas.state import AgentState

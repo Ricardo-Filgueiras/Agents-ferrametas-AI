@@ -1,11 +1,22 @@
+import os
 from agno.agent import Agent
 from agno.models.ollama import Ollama
+from agno.models.google import Gemini
 from src.schemas.state import ContentPlan, ValidationScore
 
-# Configurado para Ollama durante desenvolvimento
+# Seleção de modelo baseada em disponibilidade de API Key
+google_api_key = os.getenv("GOOGLE_API_KEY")
+
+if google_api_key:
+    model = Gemini(id="gemini-2.0-flash")
+    print("--- USANDO GEMINI PARA PLANEJAMENTO E VALIDAÇÃO SEO ---")
+else:
+    model = Ollama(id="llama3.2:3b")
+    print("--- USANDO OLLAMA PARA PLANEJAMENTO E VALIDAÇÃO SEO ---")
+
 seo_agent = Agent(
     name="SEO Strategist",
-    model=Ollama(id="llama3.2:3b"),
+    model=model,
     role="Estrategista de SEO Sênior e Especialista em Autoridade Tópica",
     instructions=[
         "Sua missão é garantir que o blog ganhe alcance orgânico através de conteúdo profundo e relevante.",

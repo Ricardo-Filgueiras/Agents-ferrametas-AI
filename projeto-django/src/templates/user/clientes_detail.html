@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ cliente.nome }} - Detalhes - Agents Ferramentas AI</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --bg-card: rgba(30, 41, 59, 0.7);
+            --color-indigo: #6366f1;
+            --color-cyan: #22d3ee;
+            --color-emerald: #10b981;
+            --color-rose: #f43f5e;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --border-glow: rgba(99, 102, 241, 0.15);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
+            min-height: 100vh;
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(99, 102, 241, 0.05) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(34, 211, 238, 0.05) 0%, transparent 40%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 2rem 1rem;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1000px;
+            margin-top: 1rem;
+        }
+
+        /* Header Navigation */
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
+            margin-bottom: 3rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .logo {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.5rem;
+            font-weight: 800;
+            text-decoration: none;
+            color: var(--text-primary);
+            background: linear-gradient(90deg, #ffffff, var(--text-secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .logo span {
+            background: linear-gradient(90deg, var(--color-indigo), var(--color-cyan));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .btn-nav-back {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.5rem 1.25rem;
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-decoration: none;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+            transition: all 0.25s;
+        }
+
+        .btn-nav-back:hover {
+            color: var(--text-primary);
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        /* Page Layout & Controls */
+        .cliente-details-box {
+            background: var(--bg-card);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 24px;
+            padding: 2.25rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            position: relative;
+        }
+
+        .cliente-name-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 2.25rem;
+            font-weight: 800;
+            margin-bottom: 1rem;
+            background: linear-gradient(135deg, #ffffff 0%, var(--text-secondary) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .details-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-top: 1.5rem;
+        }
+
+        .detail-item {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: 12px;
+            padding: 1rem;
+        }
+
+        .detail-label {
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.25rem;
+        }
+
+        .detail-value {
+            font-size: 1.05rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        /* Documents Section */
+        .section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1.5rem;
+            margin-top: 3rem;
+        }
+
+        .section-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.75rem;
+            font-weight: 700;
+        }
+
+        .btn-action-primary {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.75rem 1.5rem;
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: #ffffff;
+            background: linear-gradient(90deg, var(--color-indigo), #6366f1);
+            border: none;
+            border-radius: 12px;
+            text-decoration: none;
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+        }
+
+        .btn-action-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(99, 102, 241, 0.35);
+        }
+
+        /* Messages */
+        .messages {
+            margin-bottom: 2rem;
+            width: 100%;
+        }
+
+        .message {
+            padding: 1rem 1.25rem;
+            border-radius: 12px;
+            font-size: 0.95rem;
+            font-weight: 500;
+            margin-bottom: 1rem;
+            border: 1px solid transparent;
+            list-style: none;
+        }
+
+        .message.success {
+            background: rgba(16, 185, 129, 0.1);
+            border-color: rgba(16, 185, 129, 0.2);
+            color: #a7f3d0;
+        }
+
+        /* Table/List of Documents */
+        .documents-list {
+            background: var(--bg-card);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        }
+
+        .doc-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1.5rem 2rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            transition: background-color 0.25s;
+        }
+
+        .doc-row:last-child {
+            border-bottom: none;
+        }
+
+        .doc-row:hover {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .doc-info {
+            display: flex;
+            align-items: center;
+            gap: 1.25rem;
+        }
+
+        .doc-icon {
+            font-size: 2.25rem;
+            color: #ef4444; /* PDF Red */
+        }
+
+        .doc-name {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+
+        .doc-name:hover {
+            color: var(--color-cyan);
+        }
+
+        .doc-meta {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-top: 0.25rem;
+            display: flex;
+            gap: 1rem;
+        }
+
+        .doc-actions {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .btn-doc-action {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.5rem 1rem;
+            font-size: 0.85rem;
+            font-weight: 600;
+            border-radius: 8px;
+            text-decoration: none;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+
+        .btn-doc-download {
+            background: rgba(34, 211, 238, 0.1);
+            color: var(--color-cyan);
+            border: 1px solid rgba(34, 211, 238, 0.2);
+        }
+
+        .btn-doc-download:hover {
+            background: var(--color-cyan);
+            color: #0f172a;
+        }
+
+        .btn-doc-view {
+            background: rgba(139, 92, 246, 0.1);
+            color: #c084fc;
+            border: 1px solid rgba(139, 92, 246, 0.2);
+        }
+
+        .btn-doc-view:hover {
+            background: rgba(139, 92, 246, 0.25);
+            color: #ffffff;
+            border-color: rgba(139, 92, 246, 0.4);
+        }
+
+        .btn-doc-delete {
+            background: rgba(244, 63, 94, 0.1);
+            color: #fca5a5;
+            border: 1px solid rgba(244, 63, 94, 0.2);
+        }
+
+        .btn-doc-delete:hover {
+            background: var(--color-rose);
+            color: #ffffff;
+        }
+
+        .empty-docs {
+            padding: 4rem 2rem;
+            text-align: center;
+            color: var(--text-secondary);
+        }
+
+        .empty-docs-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+
+        /* AI Analysis Indicator Badge */
+        .ai-indicator-badge {
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 0.2rem 0.5rem;
+            border-radius: 6px;
+            background: rgba(139, 92, 246, 0.15);
+            color: #a78bfa;
+            border: 1px solid rgba(139, 92, 246, 0.25);
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+        
+        .ai-indicator-none {
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 0.2rem 0.5rem;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-secondary);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Main Header -->
+        <header class="header">
+            <a href="{% url 'interface:home' %}" class="logo">Agents <span>Ferramentas AI</span></a>
+            <a href="{% url 'user:clientes_list' %}" class="btn-nav-back">← Voltar para Lista</a>
+        </header>
+
+        <!-- Messages Notifications -->
+        {% if messages %}
+            <ul class="messages">
+                {% for message in messages %}
+                    <li class="message {{ message.tags }}">{{ message }}</li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+
+        <!-- Client Detailed Profile Card -->
+        <div class="cliente-details-box">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem;">
+                <div>
+                    <span class="detail-label" style="background: rgba(255,255,255,0.05); padding: 0.25rem 0.6rem; border-radius: 6px; font-size: 0.7rem; border: 1px solid rgba(255,255,255,0.08);">
+                        {{ cliente.get_tipo_cliente_display }}
+                    </span>
+                    <h1 class="cliente-name-title" style="margin-top: 0.75rem;">{{ cliente.nome }}</h1>
+                </div>
+                <div style="display: flex; gap: 0.75rem;">
+                    <a href="{% url 'user:clientes_update' cliente.pk %}" class="btn-doc-action btn-doc-download">✏️ Editar Perfil</a>
+                    <a href="{% url 'user:clientes_delete' cliente.pk %}" class="btn-doc-action btn-doc-delete">🗑️ Remover Cliente</a>
+                </div>
+            </div>
+
+            <div class="details-grid">
+                <div class="detail-item">
+                    <div class="detail-label">Email de Contato</div>
+                    <div class="detail-value">{{ cliente.email }}</div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-label">CPF / CNPJ</div>
+                    <div class="detail-value">{{ cliente.cpf_cnpj }}</div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-label">Status do Cliente</div>
+                    <div class="detail-value">
+                        <span style="color: {% if cliente.ativo %}var(--color-emerald){% else %}var(--color-rose){% endif %}; font-weight: 800;">
+                            ● {% if cliente.ativo %}Ativo{% else %}Inativo{% endif %}
+                        </span>
+                    </div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-label">Data de Registro</div>
+                    <div class="detail-value">{{ cliente.data_cadastro|date:"d/m/Y" }}</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Documents Section Header -->
+        <div class="section-header">
+            <h2 class="section-title">📂 Documentos PDF Carregados</h2>
+            <a href="{% url 'user:documentos_create' cliente.pk %}" class="btn-action-primary">📤 Enviar Novo PDF</a>
+        </div>
+
+        <!-- Documents List -->
+        <div class="documents-list">
+            {% if documentos %}
+                {% for doc in documentos %}
+                    <div class="doc-row">
+                        <div class="doc-info">
+                            <span class="doc-icon">📕</span>
+                            <div>
+                                <a href="{{ doc.arquivo.url }}" class="doc-name" target="_blank">{{ doc.nome }}</a>
+                                <div class="doc-meta">
+                                    <span>📅 {{ doc.data_cadastro|date:"d/m/Y" }}</span>
+                                    <span>📁 {{ doc.arquivo.name|cut:"documentos/" }}</span>
+                                    
+                                    <!-- AI Analysis status badge -->
+                                    {% if doc.analise_ia %}
+                                        <span class="ai-indicator-badge">✨ IA Processado</span>
+                                    {% else %}
+                                        <span class="ai-indicator-none">⏳ Aguardando IA</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                        <div class="doc-actions">
+                            {% if doc.arquivo_markdown %}
+                                <a href="{{ doc.arquivo_markdown.url }}" class="btn-doc-action btn-doc-view" target="_blank">👁️ Ver Markdown</a>
+                            {% endif %}
+                            <a href="{{ doc.arquivo.url }}" class="btn-doc-action btn-doc-download" download>⬇️ Baixar</a>
+                            <a href="{% url 'user:documentos_delete' cliente.pk doc.pk %}" class="btn-doc-action btn-doc-delete">🗑️ Excluir</a>
+                        </div>
+                    </div>
+                {% endfor %}
+            {% else %}
+                <div class="empty-docs">
+                    <div class="empty-docs-icon">📄</div>
+                    <h3>Nenhum arquivo PDF carregado</h3>
+                    <p style="margin-top: 0.5rem; font-size: 0.9rem;">Clique em "Enviar Novo PDF" no botão acima para carregar o primeiro documento do cliente.</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>

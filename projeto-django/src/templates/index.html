@@ -297,6 +297,88 @@
             border: 1px solid rgba(255, 255, 255, 0.03);
         }
 
+        /* Auth Navigation Bar */
+        .nav-auth {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            animation: fadeIn 1s ease-out;
+        }
+
+        .user-welcome {
+            font-size: 0.95rem;
+            color: var(--text-secondary);
+        }
+
+        .user-welcome strong {
+            color: var(--color-indigo);
+        }
+
+        .btn-nav {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.5rem 1.25rem;
+            font-size: 0.875rem;
+            font-weight: 600;
+            border-radius: 10px;
+            text-decoration: none;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+            outline: none;
+        }
+
+        .btn-login {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            color: var(--text-primary);
+        }
+
+        .btn-login:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .btn-register {
+            background: linear-gradient(90deg, var(--color-indigo), #6366f1);
+            border: none;
+            color: #ffffff;
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.15);
+        }
+
+        .btn-register:hover {
+            opacity: 0.95;
+            transform: translateY(-1px);
+            box-shadow: 0 6px 16px rgba(99, 102, 241, 0.25);
+        }
+
+        .btn-logout {
+            background: rgba(244, 63, 94, 0.1);
+            border: 1px solid rgba(244, 63, 94, 0.15);
+            color: #fca5a5;
+        }
+
+        .btn-logout:hover {
+            background: rgba(244, 63, 94, 0.18);
+            border-color: rgba(244, 63, 94, 0.25);
+        }
+
+        .btn-clients {
+            background: linear-gradient(90deg, var(--color-cyan), #06b6d4);
+            border: none;
+            color: #0f172a;
+            font-weight: 700;
+            box-shadow: 0 4px 12px rgba(34, 211, 238, 0.15);
+        }
+
+        .btn-clients:hover {
+            opacity: 0.95;
+            transform: translateY(-1px);
+            box-shadow: 0 6px 16px rgba(34, 211, 238, 0.25);
+        }
+
         /* Responsive Adaptations */
         @media (max-width: 640px) {
             .container {
@@ -324,6 +406,21 @@
     <div class="container">
         <!-- Welcome Badge -->
         <div class="badge">Django + UV + Modern UI</div>
+
+        <!-- User Status / Navigation -->
+        <div class="nav-auth">
+            {% if user.is_authenticated %}
+                <span class="user-welcome">Olá, <strong>{{ user.username }}</strong>!</span>
+                <a href="{% url 'user:clientes_list' %}" class="btn-nav btn-clients">📂 Clientes & PDFs</a>
+                <form method="post" action="{% url 'user:logout' %}" style="display: inline;">
+                    {% csrf_token %}
+                    <button type="submit" class="btn-nav btn-logout">Sair</button>
+                </form>
+            {% else %}
+                <a href="{% url 'user:login' %}" class="btn-nav btn-login">Entrar</a>
+                <a href="{% url 'user:register' %}" class="btn-nav btn-register">Cadastrar</a>
+            {% endif %}
+        </div>
 
         <!-- Main Welcome Heading -->
         <h1>Projeto <span>Agents Ferramentas AI</span></h1>

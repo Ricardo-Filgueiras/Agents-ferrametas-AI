@@ -42,6 +42,8 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'app.interface',
+    'app.user',
+    'martor',
 ]
 
 MIDDLEWARE = [
@@ -129,3 +131,15 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 # https://docs.djangoproject.com/en/6.0/ref/settings/#default-primary-key-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Authentication URLs
+LOGIN_REDIRECT_URL = '/'
+LOGOUT_REDIRECT_URL = '/'
+
+# Email Backend for Local Password Reset testing (outputs to console)
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+# Media Files (User uploads like PDFs)
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+

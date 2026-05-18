@@ -1,0 +1,24 @@
+from django import forms
+from .models import Clientes, Documentos_clientes
+
+class ClienteForm(forms.ModelForm):
+    class Meta:
+        model = Clientes
+        fields = ['tipo_cliente', 'nome', 'email', 'cpf_cnpj', 'ativo']
+        widgets = {
+            'tipo_cliente': forms.Select(attrs={'class': 'form-control'}),
+            'nome': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Nome do Cliente'}),
+            'email': forms.EmailInput(attrs={'class': 'form-control', 'placeholder': 'email@exemplo.com'}),
+            'cpf_cnpj': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Apenas números'}),
+            'ativo': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+        }
+
+class DocumentoForm(forms.ModelForm):
+    class Meta:
+        model = Documentos_clientes
+        fields = ['nome', 'arquivo', 'ativo']
+        widgets = {
+            'nome': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Nome do Documento'}),
+            'arquivo': forms.ClearableFileInput(attrs={'class': 'form-control', 'accept': '.pdf'}),
+            'ativo': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+        }

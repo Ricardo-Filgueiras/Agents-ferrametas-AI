@@ -1,6 +1,8 @@
 import uuid
+import os
 from django.db import models
 from django.contrib.auth.models import User
+from django.core.validators import FileExtensionValidator
 from martor.models import MartorField
 
 
@@ -27,12 +29,23 @@ class Documentos_clientes(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     cliente = models.ForeignKey(Clientes, on_delete=models.CASCADE, verbose_name='Cliente')
     nome = models.CharField(max_length=100, verbose_name='Nome')
-    arquivo = models.FileField(upload_to='documentos/%Y/%m/%d', verbose_name='Arquivo PDF Original')
+    arquivo = models.FileField(
+        upload_to='documentos/%Y/%m/%d', 
+        verbose_name='Arquivo Original',
+        validators=[FileExtensionValidator(allowed_extensions=['pdf', 'xlsx', 'xls', 'csv', 'docx', 'md'])]
+    )
     arquivo_markdown = models.FileField(upload_to='documentos/md/%Y/%m/%d', verbose_name='Arquivo Markdown (Docling)', blank=True, null=True)
     analise_ia = MartorField(verbose_name='Análise da IA', blank=True, null=True)
     data_cadastro = models.DateField(auto_now_add=True, verbose_name='Data de Cadastro')
     ativo = models.BooleanField(default=True, verbose_name='Ativo')
     
+    @property
+    def extensao(self):
+        if not self.arquivo:
+            return ""
+        name, ext = os.path.splitext(self.arquivo.name)
+        return ext.lower()
+
     def __str__(self):
         return self.nome
         

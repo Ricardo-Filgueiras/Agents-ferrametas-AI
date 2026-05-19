@@ -212,12 +212,12 @@
                 {{ form.nome }}
             </div>
 
-            <!-- Arquivo PDF -->
+            <!-- Arquivo -->
             <div class="form-group">
-                <label for="{{ form.arquivo.id_for_label }}">Arquivo PDF</label>
+                <label for="{{ form.arquivo.id_for_label }}">Arquivo Original</label>
                 {{ form.arquivo }}
                 <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.35rem;">
-                    Apenas arquivos com formato .pdf são permitidos.
+                    Formatos permitidos: PDF, Excel (.xlsx, .xls), CSV, Word (.docx) e Markdown (.md).
                 </div>
             </div>
 

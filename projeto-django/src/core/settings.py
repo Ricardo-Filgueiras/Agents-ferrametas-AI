@@ -43,6 +43,8 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'app.interface',
     'app.user',
+    'app.nova',
+    'app.chatbot',
     'martor',
 ]
 

@@ -371,7 +371,7 @@
                             </div>
                         </div>
                         <div class="cliente-actions">
-                            <a href="{% url 'user:clientes_detail' cliente.pk %}" class="btn-card btn-card-detail">📂 PDFs & Detalhes</a>
+                            <a href="{% url 'user:clientes_detail' cliente.pk %}" class="btn-card btn-card-detail">📂 Documentos & Detalhes</a>
                             <a href="{% url 'user:clientes_update' cliente.pk %}" class="btn-card btn-card-edit">✏️ Editar</a>
                         </div>
                     </div>
@@ -382,7 +382,7 @@
             <div class="empty-state">
                 <div class="empty-icon">👥</div>
                 <h3 class="empty-title">Nenhum cliente cadastrado</h3>
-                <p class="empty-subtitle">Cadastre seus clientes para gerenciar e fazer upload de arquivos PDF para os agentes de IA.</p>
+                <p class="empty-subtitle">Cadastre seus clientes para gerenciar e fazer upload de documentos para os agentes de IA.</p>
                 <a href="{% url 'user:clientes_create' %}" class="btn-action-primary">Cadastrar Primeiro Cliente</a>
             </div>
         {% endif %}

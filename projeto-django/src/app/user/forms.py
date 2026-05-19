@@ -19,6 +19,14 @@ class DocumentoForm(forms.ModelForm):
         fields = ['nome', 'arquivo', 'ativo']
         widgets = {
             'nome': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Nome do Documento'}),
-            'arquivo': forms.ClearableFileInput(attrs={'class': 'form-control', 'accept': '.pdf'}),
+            'arquivo': forms.ClearableFileInput(attrs={'class': 'form-control', 'accept': '.pdf,.xlsx,.xls,.csv,.docx,.md'}),
             'ativo': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
         }
+
+    def clean_arquivo(self):
+        arquivo = self.cleaned_data.get('arquivo')
+        if arquivo:
+            ext = arquivo.name.split('.')[-1].lower() if '.' in arquivo.name else ''
+            if ext not in ['pdf', 'xlsx', 'xls', 'csv', 'docx', 'md']:
+                raise forms.ValidationError("Extensão de arquivo não permitida. Por favor, envie arquivos PDF, Excel (.xlsx, .xls), CSV, Word (.docx) ou Markdown (.md).")
+        return arquivo

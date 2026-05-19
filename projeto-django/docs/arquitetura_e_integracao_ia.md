@@ -1,6 +1,6 @@
 # 📂 Arquitetura do Hub de Agentes de IA & Integração de Documentos
 
-Este documento detalha a infraestrutura, a modelagem de dados e a arquitetura de processamento do projeto **Agents Ferramentas AI**. Esta estrutura foi projetada para substituir protótipos em Streamlit por uma plataforma Django de nível de produção, multi-tenant, altamente segura e integrada a agentes autônomos de Inteligência Artificial para análise de PDFs via **RAG (Retrieval-Augmented Generation)** e **IBM Docling**.
+Este documento detalha a infraestrutura, a modelagem de dados e a arquitetura de processamento do projeto **Agents Ferramentas AI**. Esta estrutura foi projetada para substituir protótipos em Streamlit por uma plataforma Django de nível de produção, multi-tenant, altamente segura e integrada a agentes autônomos de Inteligência Artificial para análise de documentos via **RAG (Retrieval-Augmented Generation)**, **IBM Docling** e modelos locais executados via **Ollama**.
 
 ---
 
@@ -15,7 +15,7 @@ A migração de uma arquitetura Streamlit para uma arquitetura baseada em Django
 | **Isolamento de Clientes (Multi-tenancy)**| Praticamente impossível. Risco elevado de vazamento de contexto entre usuários. | **Isolamento absoluto** no nível do ORM filtrando queries por `request.user`. |
 | **Banco de Dados** | Sem ORM. Exige consultas diretas via SQL manual ou APIs. | **Django ORM integrado**, suportando migrações automatizadas, chaves estrangeiras e UUIDs. |
 | **Customização Visual (UX/UI)**| Layout rígido em colunas predefinidas com pouca flexibilidade. | **Liberdade total com Vanilla CSS**, glassmorphism, temas responsivos e animações. |
-| **Execução de Agentes (I/O)** | Trava a interface do usuário durante execuções pesadas de LLMs. | Permite **execução assíncrona** nativa ou via filas (Celery/Redis) sem impactar o usuário. |
+| **Execução de Agentes (I/O)** | Trava a interface do usuário durante execuções pesadas de LLMs. | Permite **execução assíncrona** nativa através de Background Threads e Signals sem travar a UI. |
 
 ---
 
@@ -27,6 +27,9 @@ A modelagem de banco de dados utiliza chaves primárias do tipo **UUIDv4** para 
 erDiagram
     User ||--o{ Clientes : "gerencia"
     Clientes ||--o{ Documentos_clientes : "possui"
+    Clientes ||--o{ InteractionSession : "inicia"
+    Documentos_clientes ||--o? InteractionSession : "contextualiza"
+    InteractionSession ||--o{ InteractionMessage : "armazena"
 
     User {
         int id PK
@@ -50,19 +53,36 @@ erDiagram
         uuid id PK
         uuid cliente_id FK "Relacionado a Clientes"
         string nome
-        file arquivo "PDF Original (/media/documentos/)"
+        file arquivo "PDF/DOCX Original (/media/documentos/)"
         file arquivo_markdown "Markdown Docling (/media/documentos/md/)"
         text analise_ia "Markdown da Análise (MartorField)"
         boolean ativo
         date data_cadastro
     }
+
+    InteractionSession {
+        uuid id PK
+        uuid cliente_id FK "Relacionado a Clientes"
+        uuid documento_id FK "Documento Focado (Opcional)"
+        datetime created_at
+        datetime updated_at
+    }
+
+    InteractionMessage {
+        uuid id PK
+        uuid session_id FK "Relacionada a InteractionSession"
+        string sender "user / assistant"
+        text message
+        text context_used "Trecho de RAG Injetado"
+        datetime created_at
+    }
 ```
 
 ### 🛡️ Segurança e Isolamento (*Multi-Tenancy*)
-Toda a lógica de visualização (`src/app/user/views.py`) é estruturada com restrição de escopo de usuário:
-* O usuário $A$ **nunca** poderá visualizar, editar ou remover registros de clientes pertencentes ao usuário $B$.
-* As URLs usam o padrão `/clientes/<uuid:pk>/` no lugar de IDs sequenciais como `/clientes/12/`.
-* A query de consulta de documentos do cliente é estritamente restrita por:
+Toda a lógica de visualização (`src/app/user/views.py` e `src/app/nova/views.py`) é estruturada com restrição de escopo de usuário:
+* O usuário $A$ **nunca** poderá visualizar, editar ou remover registros de clientes ou sessões de chat pertencentes ao usuário $B$.
+* As URLs usam o padrão `/clientes/<uuid:pk>/` e `/nova/chat/<uuid:session_id>/` no lugar de IDs sequenciais.
+* A query de consulta de documentos e conversas é estritamente restrita por:
   ```python
   Documentos_clientes.objects.filter(
       cliente__user=request.user, 
@@ -72,44 +92,45 @@ Toda a lógica de visualização (`src/app/user/views.py`) é estruturada com re
 
 ---
 
-## 🔄 O Pipeline de Processamento (Docling + RAG)
+## 🔄 O Pipeline de Processamento (Docling + RAG + Ollama)
 
-Abaixo está o fluxo detalhado de como um arquivo PDF carregado pelo usuário é transformado em dados estruturados legíveis para agentes inteligentes de IA.
+Abaixo está o fluxo detalhado de como um arquivo PDF/Word carregado pelo usuário é transformado em dados estruturados legíveis e analisado por modelos locais.
 
 ```mermaid
 flowchart TD
     subgraph Django [1. Camada de Interface & Upload]
-        A[Usuário logado] -->|Carrega PDF| B(Formulário de Documentos)
-        B -->|Salva PDF no Disco| C[media/documentos/YYYY/MM/DD/arquivo.pdf]
-        C -->|Gera Registro de ID| D[(SQLite / Postgres: Chave UUID)]
+        A[Usuário logado] -->|Carrega PDF/DOCX| B(Formulário de Documentos)
+        B -->|Salva Arquivo no Disco| C[media/documentos/YYYY/MM/DD/arquivo.pdf]
+        C -->|Gera Registro de ID| D[(SQLite: Chave UUID)]
     end
 
     subgraph Docling [2. Camada de Estruturação - IBM Docling]
-        D -->|Gatilho: Signal / Task| E[Leitura do PDF físico]
+        D -->|Gatilho Asíncrono: Signal/Tasks| E[Leitura do Arquivo Físico]
         E -->|Processamento de Layout/Tabelas| F[IBM Docling Engine]
         F -->|Gera String Markdown Limpa| G[Output .md]
         G -->|Salva arquivo .md no Disco| H[media/documentos/md/YYYY/MM/DD/arquivo.md]
         H -->|Atualiza modelo campo: arquivo_markdown| D
     end
 
-    subgraph RAG [3. Camada RAG & Indexação]
-        H -->|Leitura do .md| I[Text Splitter: RecursiveCharacter]
+    subgraph RAG [3. Camada RAG & Indexação Local]
+        H -->|Leitura do .md| I[Text Splitter]
         I -->|Criação de Chunks de Texto| J[Chunks com Overlap de 10%]
-        J -->|Modelo de Embeddings| K[OpenAI text-embedding-3-small]
-        K -->|Vetores de 1536 dimensões| L[(Banco de Vetores: pgvector / ChromaDB)]
+        J -->|Embeddings Locais| K[Ollama: nomic-embed-text / llama3]
+        K -->|Vetores Locais| L[(Indexador / ChromaDB)]
         L -->|Metadado Atrelado| M["{ cliente_id: UUID, doc_id: UUID }"]
     end
 
-    subgraph Agent [4. Camada de Agente & IA]
+    subgraph Agent [4. Camada de Chat Premium - Nova]
         N[Pergunta do Usuário / Prompt do Agente] -->|Busca Semântica Filtrada| L
-        L -->|Retorna os chunks do cliente correspondente| O[Injeta Contexto no LLM]
-        O -->|Agente de IA processa a resposta| P[Gera Análise de IA em Markdown]
-        P -->|Salva no Django campo: analise_ia| D
+        L -->|Retorna Chunks estruturados do Docling| O[Injeta Contexto RAG no Prompt]
+        O -->|Modelo Local Ollama| P[Gera Resposta em Markdown]
+        P -->|Salva Conversa no Banco| Q[InteractionMessage]
+        Q -->|Exibe na Interface Glassmorphic| R[Chat Console Premium]
     end
 ```
 
 ### 1. Upload e Organização
-O arquivo PDF é carregado via formulário web configurado com `enctype="multipart/form-data"`. Ele é salvo dinamicamente por data na pasta `media/documentos/%Y/%m/%d/`, prevenindo gargalos de armazenamento do sistema de arquivos e garantindo caminhos organizados.
+O arquivo PDF/DOCX é carregado via formulário web. Ele é salvo dinamicamente por data na pasta `media/documentos/%Y/%m/%d/`, prevenindo gargalos de armazenamento do sistema de arquivos e garantindo caminhos organizados.
 
 ### 2. Estruturação Avançada com IBM Docling
 Em vez de usar leitores simples de PDF (como PyPDF2) que perdem tabelas e formatação visual, usamos o **IBM Docling**:
@@ -117,15 +138,35 @@ Em vez de usar leitores simples de PDF (como PyPDF2) que perdem tabelas e format
 * Reconhece tabelas e as reconstrói perfeitamente em formato Markdown.
 * O arquivo Markdown de saída é salvo de forma legível em `media/documentos/md/%Y/%m/%d/arquivo.md` e vinculado ao campo `arquivo_markdown`.
 
-### 3. Divisão de Texto e Vetorização (RAG)
-Para permitir que o agente converse com o PDF:
-* Lemos o arquivo `.md` estruturado.
-* Dividimos em partes menores (*chunks*) de 1000 caracteres, mantendo a semântica dos títulos Markdown.
-* Geramos embeddings vetoriais de cada pedaço e os enviamos a um banco vetorial local (como **ChromaDB**) ou integrado ao PostgreSQL (**pgvector**).
-* Os metadados contêm obrigatoriamente a UUID do cliente, garantindo que o agente pesquise informações apenas dentro da sandbox daquele cliente específico.
+---
 
-### 4. Geração de Respostas do Agente (Markdown Visual)
-As interações e resumos gerados pelo Agente são gravados no campo `analise_ia`, que utiliza o componente **MartorField**. Isso possibilita que os relatórios da IA apareçam formatados com tabelas, caixas de destaque, códigos e listas estilizadas de maneira extremamente elegante na tela do usuário.
+## 🦙 Integração de Modelos Locais com Ollama (Ambiente de Testes)
+
+Para fins de desenvolvimento ágil, testes e homologação 100% offline e privada, o ecossistema suporta a integração direta com o **Ollama**. Isso elimina a necessidade de chaves de API pagas (como OpenAI ou Anthropic) e permite executar modelos de linguagem avançados localmente no hardware do desenvolvedor.
+
+### 🛠️ Configuração do Ollama no Ambiente Local
+
+Siga o guia passo a passo para configurar os modelos locais:
+
+#### 1. Instalar o Ollama
+Baixe e instale o Ollama para o seu sistema operacional:
+* Windows/macOS/Linux: Acesse [ollama.com](https://ollama.com) e siga o assistente de instalação.
+
+#### 2. Baixar os Modelos Recomendados
+Abra o seu terminal (PowerShell ou Bash) e faça o download dos modelos que usaremos no processamento e chat:
+```powershell
+# Modelo principal para geração de texto e chat com contexto RAG (Padrão do Projeto)
+ollama pull llama3.2:3b
+
+# Modelo especializado em embeddings para busca semântica de alta performance (Opcional)
+ollama pull nomic-embed-text
+```
+
+#### 3. Configurar as Variáveis de Ambiente no Django
+Edite o arquivo `.env` localizado na raiz do projeto para configurar o endpoint e o modelo padrão do Ollama (por padrão, o Ollama roda na porta `11434`):
+```env
+OLLAMA_MODEL="llama3.2:3b"
+```
 
 ---
 
@@ -155,14 +196,15 @@ Para criar credenciais de acesso para `/admin/`:
 uv run .\src\manage.py createsuperuser
 ```
 
-### 5. Instalar Novas Dependências via UV (Exemplo: Docling / Agno)
+### 5. Executar os Testes Unitários
 ```powershell
-uv add docling agno openai python-dotenv
+uv run manage.py test app
 ```
 
 ---
 
-## 📈 Próximos Passos de Desenvolvimento
-1. **Integração das chaves do Agente**: Criar o arquivo `.env` para centralizar `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` ou configurações do modelo local.
-2. **Criação do Serviço de Processamento**: Implementar um helper em Python (ex: `src/app/user/services.py`) que aciona a classe do `Docling` para ler o PDF e gerar o `.md`.
-3. **Trigger de Processamento**: Chamar esse serviço através de um gatilho assíncrono na View de Upload do Django.
+## 📈 Funcionalidades Concluídas & Homologadas
+1. **Modelos no Chat `nova`**: Totalmente implementado o consumo da API local do Ollama para ler o contexto em formato Markdown extraído dinamicamente pelo Docling.
+2. **Interface Glassmorphic**: Construído o console de chat com design premium, visual responsivo, marked.js para renderização de fórmulas e código markdown, e integração assíncrona AJAX/fetch.
+3. **Padrão Observer com Django Signals**: Resposta instantânea no upload de arquivos, com processamento pesado de OCR offloaded para threads secundárias em background.
+4. **Suíte de Testes Automatizados**: 100% de cobertura nos testes unitários e de integração validando fluxos críticos sem locks no banco de dados SQLite.

@@ -411,7 +411,7 @@
         <div class="nav-auth">
             {% if user.is_authenticated %}
                 <span class="user-welcome">Olá, <strong>{{ user.username }}</strong>!</span>
-                <a href="{% url 'user:clientes_list' %}" class="btn-nav btn-clients">📂 Clientes & PDFs</a>
+                <a href="{% url 'user:clientes_list' %}" class="btn-nav btn-clients">📂 Clientes & Documentos</a>
                 <form method="post" action="{% url 'user:logout' %}" style="display: inline;">
                     {% csrf_token %}
                     <button type="submit" class="btn-nav btn-logout">Sair</button>

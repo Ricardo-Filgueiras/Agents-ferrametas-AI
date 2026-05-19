@@ -412,8 +412,8 @@
 
         <!-- Documents Section Header -->
         <div class="section-header">
-            <h2 class="section-title">📂 Documentos PDF Carregados</h2>
-            <a href="{% url 'user:documentos_create' cliente.pk %}" class="btn-action-primary">📤 Enviar Novo PDF</a>
+            <h2 class="section-title">📂 Documentos Carregados</h2>
+            <a href="{% url 'user:documentos_create' cliente.pk %}" class="btn-action-primary">📤 Enviar Novo Documento</a>
         </div>
 
         <!-- Documents List -->
@@ -422,7 +422,19 @@
                 {% for doc in documentos %}
                     <div class="doc-row">
                         <div class="doc-info">
-                            <span class="doc-icon">📕</span>
+                            <span class="doc-icon">
+                                {% if doc.extensao == '.xlsx' or doc.extensao == '.xls' %}
+                                    📗
+                                {% elif doc.extensao == '.csv' %}
+                                    📊
+                                {% elif doc.extensao == '.docx' %}
+                                    📘
+                                {% elif doc.extensao == '.md' %}
+                                    📝
+                                {% else %}
+                                    📕
+                                {% endif %}
+                            </span>
                             <div>
                                 <a href="{{ doc.arquivo.url }}" class="doc-name" target="_blank">{{ doc.nome }}</a>
                                 <div class="doc-meta">
@@ -440,6 +452,7 @@
                         </div>
                         <div class="doc-actions">
                             {% if doc.arquivo_markdown %}
+                                <a href="{% url 'nova:start_chat' doc.pk %}" class="btn-doc-action btn-doc-view" style="background: rgba(16, 185, 129, 0.1); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.2);">💬 Chat com Nova</a>
                                 <a href="{{ doc.arquivo_markdown.url }}" class="btn-doc-action btn-doc-view" target="_blank">👁️ Ver Markdown</a>
                             {% endif %}
                             <a href="{{ doc.arquivo.url }}" class="btn-doc-action btn-doc-download" download>⬇️ Baixar</a>
@@ -450,8 +463,8 @@
             {% else %}
                 <div class="empty-docs">
                     <div class="empty-docs-icon">📄</div>
-                    <h3>Nenhum arquivo PDF carregado</h3>
-                    <p style="margin-top: 0.5rem; font-size: 0.9rem;">Clique em "Enviar Novo PDF" no botão acima para carregar o primeiro documento do cliente.</p>
+                    <h3>Nenhum documento carregado</h3>
+                    <p style="margin-top: 0.5rem; font-size: 0.9rem;">Clique em "Enviar Novo Documento" no botão acima para carregar o primeiro documento do cliente.</p>
                 </div>
             {% endif %}
         </div>

@@ -24,6 +24,7 @@ projeto-graph/
 - **Persistência com SQLite**: Diferente de chats básicos, este agente utiliza o `SqliteSaver`. Isso significa que ele pode manter o contexto de milhares de conversas diferentes, persistindo os dados em disco.
 - **Modularidade Total**: Cada componente (LLM, Estado, Grafo) é isolado, facilitando a manutenção e a adição de novas funcionalidades como ferramentas (tools) e lógica condicional.
 - **Gestão de Ambiente**: Suporte nativo a `.env` para proteção de chaves de API e configurações dinâmicas.
+- **Ferramentas de Cálculo Integradas**: Implementadas em `src/nodes/calcula_tools.py` (`somar`, `subtrair`, `multiplicar`, `dividir`) para demonstrar o loop do agente ReAct.
 - **Interface CLI Robusta**: Interface interativa construída com a biblioteca `Rich`, oferecendo feedback visual limpo e suporte a Markdown.
 
 ## 🛠️ Stack Tecnológica
@@ -52,9 +53,15 @@ projeto-graph/
    uv run main.py
    ```
 
+4. **Testar o Loop do ReAct Agent (Cálculos Múltiplos)**:
+   Para visualizar o agente chamando ferramentas de cálculo em loop passo a passo (streaming de nós e mensagens):
+   ```bash
+   uv run test_math_agent.py
+   ```
+
 ## 📝 Próximos Passos (Backlog)
 
-- [ ] **Tool Integration**: Adicionar ferramentas de pesquisa e cálculos.
-- [ ] **Conditional Routing**: Lógica para decidir quando usar ferramentas.
+- [x] **Tool Integration**: Adicionar ferramentas de pesquisa e cálculos.
+- [x] **Conditional Routing**: Lógica para decidir quando usar ferramentas.
 - [ ] **Async Support**: Migrar o grafo para execução assíncrona.
 - [ ] **Observability**: Integrar LangSmith para monitoramento de traces.

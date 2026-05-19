@@ -1,10 +1,7 @@
 from langchain_core.messages import SystemMessage
 from src.core.state import AgentState
 from src.core.config import get_model, SYSTEM_PROMPT
-from src.nodes.data_tools import list_available_files, inspect_csv_structure, run_python_analysis
-
-# Lista de ferramentas disponíveis para o agente
-tools = [list_available_files, inspect_csv_structure, run_python_analysis]
+from src.nodes.tools_node import tools
 
 # Inicializa o modelo vinculado às ferramentas
 model = get_model().bind_tools(tools)
@@ -19,3 +16,4 @@ def call_llm(state: AgentState) -> AgentState:
     
     llm_result = model.invoke(messages)
     return {"messages": [llm_result]}
+

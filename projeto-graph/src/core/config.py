@@ -8,7 +8,8 @@ load_dotenv()
 def get_model():
     """
     Inicializa o modelo de chat baseado na variável de ambiente MODEL_NAME.
-    Padrão para Ollama local llama3.2:3b se não especificado.
+    Padrão para Ollama local "ollama:granite4.1:3b" se não especificado.
+    Voce tem acesso a ferramentas.
     """
     model_name = os.getenv("MODEL_NAME", "ollama:llama3.2:3b")
     return init_chat_model(model_name)

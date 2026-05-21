@@ -317,6 +317,8 @@ Este documento possui dados de alto valor. Para obter os melhores resultados com
 3. **Download Completo:** Se necessário, você pode baixar o arquivo markdown gerado (`{md_filename}`) ou o arquivo original clicando nos botões de ação na barra superior.
 """
     
-    documento.analise_ia = summary_card
+    # 4. Save to database
+    documento.analise_ia = summary_card  # Summary card com preview e recomendações
+    documento.content = content          # Markdown puro para visualizar no admin (MartorField)
     documento.save()
     logger.info(f"Processamento concluído com sucesso para o documento: {documento.nome}")

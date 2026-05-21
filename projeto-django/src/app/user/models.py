@@ -38,6 +38,7 @@ class Documentos_clientes(models.Model):
     analise_ia = MartorField(verbose_name='Análise da IA', blank=True, null=True)
     data_cadastro = models.DateField(auto_now_add=True, verbose_name='Data de Cadastro')
     ativo = models.BooleanField(default=True, verbose_name='Ativo')
+    content = MartorField(verbose_name='Conteúdo Markdown Extraído', blank=True, null=True)
     
     @property
     def extensao(self):

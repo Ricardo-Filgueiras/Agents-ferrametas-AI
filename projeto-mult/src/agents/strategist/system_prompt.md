@@ -1,0 +1,1 @@
+# esse prompt system diz hello word para o agente, e depois da um exemplo de como usar o strategist, e depois tem um guia rapido de comandos para testar e debugar o strategist.

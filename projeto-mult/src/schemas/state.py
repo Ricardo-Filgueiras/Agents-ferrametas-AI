@@ -56,6 +56,9 @@ class AgentState(TypedDict):
     topic: str
     keywords: List[str]
     
+    # Configurações de Modelos (Novo)
+    model_config: dict # { "planner": "gemini", "writer": "ollama", "reviewer": "gemini" }
+    
     # Artefatos Gerados
     plan: Optional[ContentPlan]
     draft: Optional[Draft]
@@ -64,13 +67,18 @@ class AgentState(TypedDict):
     validation: Optional[ValidationScore]
     
     # Controle de Fluxo
+    chat_history: List[dict]
     revision_history: List[str]
+    edit_request: Optional[dict] # Novo: {"target_section": str, "instruction": str}
     iteration_count: int
     current_step: str
     
     # Observabilidade
     logs: List[AgentExecutionLog]
     
-    # Status Final (facilitadores para o banco)
+    # Flags e Pontuações Adicionais
     is_validated: bool
     final_score: float
+    
+    # Extensibilidade (Para módulos plugáveis)
+    artifacts: dict

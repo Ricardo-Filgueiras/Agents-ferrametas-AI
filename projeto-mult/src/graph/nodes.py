@@ -4,35 +4,57 @@ from src.agents.seo.agent import get_seo_planner, get_seo_validator
 from src.agents.writer.agent import get_technical_writer
 from src.agents.editor.agent import get_editor
 from src.agents.designer.agent import get_designer
+from src.services.model_resolver import resolve_model
 
 def planning_node(state: AgentState):
-    print("--- SEO PLANNING ---")
-    planner = get_seo_planner()
+    print("--- SEO PLANNING & IDEA IMPROVEMENT ---")
+    
+    # Resolve o modelo baseado na config ou usa default (gemini)
+    model_tag = state.get("model_config", {}).get("planner", "gemini")
+    model = resolve_model(model_tag)
+    
+    planner = get_seo_planner(model=model)
     
     start_time = time.time()
-    # Passamos o response_model na chamada run
-    response = planner.run(
-        f"Ideia central: {state['topic']}. Keywords: {state['keywords']}",
-        response_model=ContentPlan
-    )
+    # Prompt focado em MELHORAR a ideia inicial (cloud model)
+    prompt = f"""
+    ESTRATÉGIA DE CONTEÚDO:
+    Ideia Bruta do Usuário: {state['topic']}
+    Keywords Iniciais: {state['keywords']}
+    
+    Sua tarefa:
+    1. Melhore o tema central para torná-lo mais atraente e tecnicamente robusto.
+    2. Refine a lista de palavras-chave para o contexto atual do mercado.
+    3. Crie a estrutura de tópicos (outline) perfeita para SEO.
+    """
+    
+    response = planner.run(prompt, response_model=ContentPlan)
     execution_time = time.time() - start_time
     
     # No Agno v2.x com response_model, o conteúdo já vem como objeto se disponível
     state["plan"] = response.content
+    
+    # Sincroniza keywords refinadas de volta para o estado global
+    if hasattr(response.content, "primary_keywords"):
+        state["keywords"] = response.content.primary_keywords
+        
     state["current_step"] = "planning"
     
     state["logs"].append(AgentExecutionLog(
         agent_name="SEO Strategist",
         step="Planning",
         execution_time=execution_time,
-        model_used=getattr(planner.model, "id", "unknown"),
+        model_used=model_tag,
         success=True
     ))
     return state
 
 def writing_node(state: AgentState):
     print("--- TECHNICAL WRITING ---")
-    writer = get_technical_writer()
+    
+    model_tag = state.get("model_config", {}).get("writer", "ollama")
+    model = resolve_model(model_tag)
+    writer = get_technical_writer(model=model)
     
     prompt = f"Escreva o artigo baseado no plano: {state['plan']}"
     
@@ -61,14 +83,17 @@ def writing_node(state: AgentState):
         agent_name="Technical Writer",
         step=f"Writing (It {state['iteration_count']})",
         execution_time=execution_time,
-        model_used=getattr(writer.model, "id", "unknown"),
+        model_used=model_tag,
         success=True
     ))
     return state
 
 def editing_node(state: AgentState):
     print("--- EDITORIAL REVIEW ---")
-    editor = get_editor()
+    
+    model_tag = state.get("model_config", {}).get("reviewer", "ollama")
+    model = resolve_model(model_tag)
+    editor = get_editor() # TODO: Update editor agent to accept model if needed
     
     # Validação de segurança para evitar erro de atributo
     content_to_review = ""
@@ -91,7 +116,7 @@ def editing_node(state: AgentState):
         agent_name="Editor",
         step="Review",
         execution_time=execution_time,
-        model_used=getattr(editor.model, "id", "unknown"),
+        model_used=model_tag,
         success=True
     ))
     return state
@@ -120,14 +145,17 @@ def design_node(state: AgentState):
         agent_name="Designer",
         step="Design Prompts",
         execution_time=execution_time,
-        model_used=getattr(designer.model, "id", "unknown"),
+        model_used="default",
         success=True
     ))
     return state
 
 def validation_node(state: AgentState):
     print("--- FINAL SEO VALIDATION ---")
-    validator = get_seo_validator()
+    
+    model_tag = state.get("model_config", {}).get("planner", "gemini")
+    model = resolve_model(model_tag)
+    validator = get_seo_validator(model=model)
     
     content_to_validate = ""
     if state["draft"] and hasattr(state["draft"], "markdown_content"):
@@ -155,7 +183,63 @@ def validation_node(state: AgentState):
         agent_name="SEO Validator",
         step="Final Validation",
         execution_time=execution_time,
-        model_used=getattr(validator.model, "id", "unknown"),
+        model_used=model_tag,
+        success=True
+    ))
+    return state
+    
+def refinement_node(state: AgentState):
+    print("--- REFINEMENT NODE ---")
+    
+    model_tag = state.get("model_config", {}).get("writer", "ollama")
+    model = resolve_model(model_tag)
+    writer = get_technical_writer(model=model)
+    
+    current_content = state["draft"].markdown_content if hasattr(state["draft"], "markdown_content") else str(state["draft"])
+    
+    # Verifica se há um pedido seletivo (via editor) ou chat geral
+    edit_req = state.get("edit_request")
+    
+    if edit_req:
+        target = edit_req.get("target_section")
+        instruction = edit_req.get("instruction")
+        prompt = f"""
+        ARTIGO ATUAL:
+        {current_content}
+        
+        PEDIDO DE REESCRITA SELETIVA:
+        Foque na parte: "{target}"
+        Instrução: {instruction}
+        
+        Reescreva APENAS este trecho mantendo a coesão com o restante do artigo. Retorne o artigo completo já integrado.
+        """
+    else:
+        # Chat geral
+        user_request = state["chat_history"][-1]["content"] if state["chat_history"] else "Melhore o artigo."
+        prompt = f"""
+        ARTIGO ATUAL:
+        {current_content}
+        
+        PEDIDO DO USUÁRIO:
+        {user_request}
+        
+        Reescreva o artigo ajustando o que foi pedido e mantendo a qualidade.
+        """
+    
+    start_time = time.time()
+    response = writer.run(prompt, response_model=Draft)
+    execution_time = time.time() - start_time
+    
+    state["draft"] = response.content
+    state["current_step"] = "refinement"
+    state["iteration_count"] += 1
+    state["edit_request"] = None # Limpa pedido após execução
+    
+    state["logs"].append(AgentExecutionLog(
+        agent_name="Technical Writer (Refinement)",
+        step=f"Refinement (It {state['iteration_count']})",
+        execution_time=execution_time,
+        model_used=model_tag,
         success=True
     ))
     return state

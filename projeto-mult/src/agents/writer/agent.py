@@ -7,13 +7,18 @@ from src.schemas.state import Draft
 # Seleção de modelo baseada em disponibilidade de API Key
 google_api_key = os.getenv("GOOGLE_API_KEY")
 
-if google_api_key:
-    # Mesmo tendo API Key, podemos escolher o Flash Lite ou Flash para custo/velocidade
-    model = Gemini(id="gemini-2.0-flash")
-    print("--- USANDO GEMINI PARA ESCRITA TÉCNICA ---")
-else:
+# O Writer PRIORIZA o modelo local para economizar tokens na geração de volume
+# Tenta usar Ollama, se não estiver disponível, usa Gemini como fallback
+try:
     model = Ollama(id="llama3.2:3b")
-    print("--- USANDO OLLAMA PARA ESCRITA TÉCNICA ---")
+    print("--- USANDO OLLAMA (LOCAL) PARA ESCRITA TÉCNICA (ECONOMIA DE TOKENS) ---")
+except Exception:
+    if google_api_key:
+        model = Gemini(id="gemini-2.5-flash")
+        print("--- FALLBACK: USANDO GEMINI PARA ESCRITA TÉCNICA ---")
+    else:
+        model = Ollama(id="llama3.2:3b") # Fallback final
+
 
 # O Writer usa o modelo local para a escrita pesada (ou Gemini como fallback potente)
 writer_agent = Agent(
@@ -34,6 +39,14 @@ writer_agent = Agent(
     debug_mode=True,
 )
 
-def get_technical_writer():
+def get_technical_writer(model=None):
+    if model:
+        return Agent(
+            name="Technical Writer",
+            model=model,
+            role=writer_agent.role,
+            instructions=writer_agent.instructions,
+            markdown=True
+        )
     return writer_agent
 

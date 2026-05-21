@@ -29,6 +29,8 @@ class Article(Base):
     
     # Observabilidade
     execution_logs = Column(JSON)
+    chat_history = Column(JSON) # Histórico de conversas do chat
+    last_state = Column(JSON)   # Snapshot do AgentState para retomar fluxos
     
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)

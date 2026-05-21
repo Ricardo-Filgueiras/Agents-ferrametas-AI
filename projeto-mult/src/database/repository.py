@@ -137,7 +137,9 @@ class ArticleRepository:
                 seo_score=seo_score,
                 is_validated=1 if state.get("is_validated", False) else 0,
                 iteration_count=state.get("iteration_count", 1),
-                execution_logs=logs_dict
+                execution_logs=logs_dict,
+                chat_history=state.get("chat_history", []),
+                last_state=self._serialize_state(state)
             )
             session.add(new_article)
             session.commit()
@@ -147,5 +149,41 @@ class ArticleRepository:
             session.rollback()
             print(f"Error saving article: {e}")
             raise e
+        finally:
+            session.close()
+
+    def _serialize_state(self, state: AgentState) -> dict:
+        """Helper para serializar o estado completo lidando com objetos Pydantic"""
+        serialized = {}
+        for k, v in state.items():
+            if hasattr(v, "model_dump"):
+                serialized[k] = v.model_dump(mode="json")
+            elif isinstance(v, list):
+                serialized[k] = [item.model_dump(mode="json") if hasattr(item, "model_dump") else item for item in v]
+            else:
+                serialized[k] = v
+        return serialized
+
+    def get_article_by_id(self, article_id: int) -> Article:
+        session = self.Session()
+        try:
+            return session.query(Article).filter(Article.id == article_id).first()
+        finally:
+            session.close()
+
+    def update_article_chat(self, article_id: int, chat_history: list, last_state: dict):
+        session = self.Session()
+        try:
+            article = session.query(Article).filter(Article.id == article_id).first()
+            if article:
+                article.chat_history = chat_history
+                article.last_state = last_state
+                session.commit()
+                return True
+            return False
+        except Exception as e:
+            session.rollback()
+            print(f"Error updating article chat: {e}")
+            return False
         finally:
             session.close()

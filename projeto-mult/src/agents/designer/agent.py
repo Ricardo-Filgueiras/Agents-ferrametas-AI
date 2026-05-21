@@ -8,7 +8,7 @@ from src.schemas.state import DesignPrompts
 google_api_key = os.getenv("GOOGLE_API_KEY")
 
 if google_api_key:
-    model = Gemini(id="gemini-2.0-flash")
+    model = Gemini(id="gemini-2.5-flash")
     print("--- USANDO GEMINI PARA DESIGN DE CONTEÚDO ---")
 else:
     model = Ollama(id="llama3.2:3b")

@@ -1,20 +1,94 @@
 import os
-from typing import Optional
+import requests
+from typing import List
+
 from dotenv import load_dotenv
+from langchain.chat_models import init_chat_model
 
 load_dotenv()
 
-# Configurações gerais
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+DATABASE_URL = os.getenv("DATABASE_URL", "data/checkpoints.db")
+BASE_MODEL = os.getenv("BASE_MODEL", "ollama:granite4.1:3b")
+SYSTEM_PROMPT_PATH = os.path.join(os.path.dirname(__file__), "../..", ".agents", "system_prompt.md")
+OLLAMA_API_URL = os.getenv("OLLAMA_API_URL", "http://localhost:11434")
 
-# Modelos padrão
-DEFAULT_OLLAMA_MODEL = os.getenv("DEFAULT_OLLAMA_MODEL", "llama3.2:3b")
-DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
-DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+# Quero listar os modelos locais disponíveis no ollama, 
+# com uma função ollama lista os modelos disponíveis, 
+# e depois escolher o modelo com base na variável de ambiente BASE_MODEL.
 
-# Configurações de temperatura
-DEFAULT_TEMPERATURE = float(os.getenv("DEFAULT_TEMPERATURE", "0.7"))
-CREATIVE_TEMPERATURE = 0.9
-PRECISE_TEMPERATURE = 0.2
+def list_ollama_models() -> List[str]:
+    """
+    Lista todos os modelos disponíveis no Ollama.
+    
+    Returns:
+        List[str]: Lista de nomes dos modelos disponíveis
+        
+    Raises:
+        ConnectionError: Se não conseguir conectar ao Ollama
+    """
+    try:
+        response = requests.get(f"{OLLAMA_API_URL}/api/tags", timeout=5)
+        response.raise_for_status()
+        data = response.json()
+        
+        # Extrai os nomes dos modelos
+        models = [model["name"] for model in data.get("models", [])]
+        return models
+    except requests.exceptions.ConnectionError:
+        raise ConnectionError(
+            f"Não foi possível conectar ao Ollama em {OLLAMA_API_URL}. "
+            "Certifique-se de que o Ollama está rodando."
+        )
+    except requests.exceptions.Timeout:
+        raise TimeoutError("Timeout ao conectar ao Ollama")
+    except Exception as e:
+        raise RuntimeError(f"Erro ao listar modelos do Ollama: {e}")
+
+
+def validate_model(model_name: str) -> bool:
+    """
+    Valida se um modelo está disponível no Ollama.
+    
+    Args:
+        model_name (str): Nome do modelo a validar
+        
+    Returns:
+        bool: True se o modelo existe, False caso contrário
+    """
+    try:
+        available_models = list_ollama_models()
+        return model_name in available_models
+    except Exception:
+        return False
+
+
+def get_model():
+    """
+    Inicializa o modelo de chat baseado na variável de ambiente BASE_MODEL.
+    Valida se o modelo está disponível no Ollama.
+    """
+    model_name = os.getenv("BASE_MODEL", "ollama:granite4.1:3b")
+    
+    # Validar modelo disponível
+    if not validate_model(model_name.replace("ollama:", "")):
+        print(f"Aviso: Modelo '{model_name}' pode não estar disponível no Ollama")
+        print("Modelos disponíveis:")
+        try:
+            for model in list_ollama_models():
+                print(f"  - {model}")
+        except Exception as e:
+            print(f"  Erro ao listar modelos: {e}")
+    
+    return init_chat_model(model_name)
+
+
+# Configurações globais
+def load_system_prompt():
+    try:
+        with open(SYSTEM_PROMPT_PATH, "r", encoding="utf-8") as f:
+            return f.read()
+    except Exception as e:
+        print(f"Aviso: Não foi possível carregar o system_prompt.md: {e}")
+        return "Você é um assistente de IA prestativo."
+
+SYSTEM_PROMPT = load_system_prompt()

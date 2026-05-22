@@ -1,6 +1,6 @@
 {
     "graphs": {
-        "agent": "src/agent.py:graph"
+        "workflow_strateg": "src/workflows/workflow_strateg.py:graph"
     },
     "env":".env",
     "python_version": "3.13",

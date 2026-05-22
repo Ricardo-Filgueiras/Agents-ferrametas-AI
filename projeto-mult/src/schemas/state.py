@@ -13,4 +13,6 @@ class AgentState(TypedDict):
     O reducer add_messages garante que novas mensagens sejam anexadas ao histórico.
     """
     messages: Annotated[Sequence[BaseMessage], add_messages]
+
+
     

@@ -10,6 +10,7 @@ from src.llm.config import list_ollama_models, validate_model, get_system_prompt
 
 from dotenv import load_dotenv
 from langchain.chat_models import init_chat_model
+from langchain_core.runnables.config import RunnableConfig
 
 
 # Carrega variáveis do arquivo .env
@@ -41,13 +42,27 @@ SYSTEM_PROMPT = get_system_prompt_for_agent("strategist")
 # Inicializa o modelo vinculado às ferramentas
 model = get_model()
 
-def call_llm(state: AgentState) -> AgentState:
+
+def call_llm(state: AgentState, config: RunnableConfig ) -> AgentState:
     """
     Nó que chama a LLM injetando a System Message e o histórico atual.
     O modelo agora é capaz de chamar ferramentas.
     """
-    # Adicionamos a SystemMessage no topo da lista de mensagens para a LLM
-    messages = [SystemMessage(content=SYSTEM_PROMPT)] + list(state["messages"])
+    configurable = config.get("configurable", {})
     
-    llm_result = model.invoke(messages)
+    model_name = configurable.get("model_name", "ollama:llama3.2:3b")
+
+    current_messages = list(state.get("messages", []))
+
+    model = init_chat_model(model_name)
+    
+    # Verifica se já existe uma SystemMessage para não duplicar no histórico
+    if not current_messages or not isinstance(current_messages[0], SystemMessage):
+        messages = [SystemMessage(content=SYSTEM_PROMPT)] + current_messages
+    else:
+        messages = current_messages
+
+
+    llm_result = model.invoke(messages, config=config)
+    
     return {"messages": [llm_result]}

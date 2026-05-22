@@ -4,6 +4,7 @@ from typing import List, Optional
 
 from dotenv import load_dotenv
 from langchain.chat_models import init_chat_model
+from langchain_core.runnables.config import RunnableConfig 
 
 load_dotenv()
 
@@ -12,6 +13,14 @@ BASE_MODEL = os.getenv("BASE_MODEL", "ollama:granite4.1:3b")
 SYSTEM_PROMPT_PATH = os.path.join(os.path.dirname(__file__), "../..", ".agents", "system_prompt.md")
 OLLAMA_API_URL = os.getenv("OLLAMA_API_URL", "http://localhost:11434")
 AGENTS_DIR = os.path.join(os.path.dirname(__file__), "../agents")
+
+# Lista estática dos modelos em nuvem que sua aplicação suporta e tem chaves de API configuradas
+CLOUD_MODELS = [
+    {"id": "openai:gpt-4o", "name": "GPT-4o (OpenAI)", "type": "cloud"},
+    {"id": "openai:gpt-4o-mini", "name": "GPT-4o Mini (OpenAI)", "type": "cloud"},
+    {"id": "anthropic:claude-3-5-sonnet", "name": "Claude 3.5 Sonnet (Anthropic)", "type": "cloud"},
+    {"id": "google_genai:gemini-1.5-flash", "name": "Gemini 1.5 Flash (Google)", "type": "cloud"}
+]
 
 # Quero listar os modelos locais disponíveis no ollama, 
 # com uma função ollama lista os modelos disponíveis, 

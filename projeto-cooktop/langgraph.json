@@ -1,0 +1,8 @@
+{
+    "graphs": {
+        "kitchen": "./src/graph/pipeline.py:app"
+    },
+    "env": ".env",
+    "python_version": "3.12",
+    "dependencies": ["-r requirements.txt", "."]
+}

@@ -1,3 +1,4 @@
+import os
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode
 from src.schemas.state import AgentState
@@ -65,6 +66,15 @@ def create_pipeline():
             END: END
         }
     )
+    # # Use storege em ./data para persistência de estado e histórico
+    # storage_path = os.path.join("data", ".langgraph_api")
+    # os.makdirs(storage_path, exist_ok=True)
+
+    # # Compile com storage personalizado
+    # from langgraph.checkpoint.sqlite import SqliteSaver
+    # memory = SqliteSaver.from_conn_string(f"sqlite:///{storage_path}/langgraph.db")
+    
+    # return workflow.compile(checkpointer=memory) 
 
     return workflow.compile()
 

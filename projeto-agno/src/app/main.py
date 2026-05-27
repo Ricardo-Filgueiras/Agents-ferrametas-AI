@@ -4,6 +4,7 @@ from agno.models.ollama import Ollama
 from agno.os import AgentOS
 from pathlib import Path
 from agno.skills import  Skills , LocalSkills 
+from agno.tools.file import FileTools
 
 
 # Configuração da página Streamlit
